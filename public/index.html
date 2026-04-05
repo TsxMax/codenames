@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codenames</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --red: #e74c3c;
+      --red-dark: #c0392b;
+      --blue: #3498db;
+      --blue-dark: #2980b9;
+      --neutral: #bdc3c7;
+      --neutral-dark: #95a5a6;
+      --assassin: #2c3e50;
+      --bg: #1a1a2e;
+      --bg2: #16213e;
+      --text: #eee;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ─── Écran de connexion ─── */
+    #joinScreen {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    #joinScreen h1 {
+      font-size: 3em;
+      text-transform: uppercase;
+      letter-spacing: 8px;
+      background: linear-gradient(135deg, var(--red), var(--blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    #joinScreen .subtitle { color: #888; font-size: 1.1em; margin-bottom: 20px; }
+
+    .join-box {
+      background: var(--bg2);
+      padding: 40px;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 350px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+    }
+
+    .join-box label { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+
+    .join-box input {
+      padding: 12px 16px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1.1em;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .join-box input:focus { border-color: var(--blue); }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .btn:active { transform: translateY(0); }
+    .btn-primary { background: linear-gradient(135deg, var(--blue), var(--blue-dark)); color: white; }
+    .btn-red { background: linear-gradient(135deg, var(--red), var(--red-dark)); color: white; }
+    .btn-blue { background: linear-gradient(135deg, var(--blue), var(--blue-dark)); color: white; }
+    .btn-neutral { background: #555; color: white; }
+    .btn-success { background: linear-gradient(135deg, #27ae60, #2ecc71); color: white; }
+    .btn-warning { background: linear-gradient(135deg, #f39c12, #e67e22); color: white; }
+    .btn-small { padding: 8px 16px; font-size: 0.85em; }
+    .btn-large { padding: 14px 32px; font-size: 1.1em; }
+
+    /* ─── Game Screen ─── */
+    #gameScreen { display: none; }
+
+    .game-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr 280px;
+      min-height: 100vh;
+    }
+
+    /* Sidebar gauche */
+    .sidebar-left {
+      background: var(--bg2);
+      padding: 20px;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+    }
+
+    .sidebar-left h3 {
+      text-align: center;
+      margin-bottom: 16px;
+      font-size: 0.9em;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #888;
+    }
+
+    .team-section {
+      margin-bottom: 16px;
+      border-radius: 10px;
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+    }
+
+    .team-section.red-team { border-left: 4px solid var(--red); }
+    .team-section.blue-team { border-left: 4px solid var(--blue); }
+
+    .team-header {
+      font-weight: bold;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .team-header .score { font-size: 1.4em; }
+    .team-header.red { color: var(--red); }
+    .team-header.blue { color: var(--blue); }
+
+    .player-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+
+    .player-item {
+      font-size: 0.85em;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+    }
+
+    .player-item .role-badge { font-size: 0.75em; opacity: 0.7; }
+
+    .unassigned-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      border-left: 4px solid #666;
+    }
+
+    .team-buttons { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+    .team-buttons .btn { font-size: 0.75em; padding: 8px 10px; }
+
+    .starting-badge {
+      font-size: 0.65em;
+      padding: 2px 6px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.15);
+      margin-left: 4px;
+    }
+
+    /* Zone principale */
+    .main-area {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .game-header {
+      width: 100%;
+      max-width: 820px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .room-id { font-size: 0.85em; color: #666; margin-bottom: 6px; }
+
+    .turn-indicator {
+      display: inline-block;
+      padding: 8px 24px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 1em;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .turn-indicator.red { background: var(--red); color: white; }
+    .turn-indicator.blue { background: var(--blue); color: white; }
+
+    .clue-banner {
+      margin: 12px 0;
+      padding: 12px 24px;
+      background: rgba(241, 196, 15, 0.15);
+      border: 2px solid #f1c40f;
+      border-radius: 12px;
+      display: none;
+    }
+
+    .clue-banner.show { display: block; }
+
+    .clue-word {
+      font-size: 1.6em;
+      font-weight: bold;
+      color: #f1c40f;
+    }
+
+    .clue-meta {
+      font-size: 0.9em;
+      color: #aaa;
+      margin-top: 4px;
+    }
+
+    /* Grille */
+    .board {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      width: 100%;
+      max-width: 820px;
+      margin-bottom: 16px;
+    }
+
+    .card {
+      aspect-ratio: 1.6;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.85em;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: default;
+      transition: all 0.25s;
+      text-align: center;
+      padding: 6px;
+      word-break: break-word;
+      border: 3px solid transparent;
+      user-select: none;
+    }
+
+    /* Carte cachée (vue agent) */
+    .card.hidden {
+      background: #e8e0c8;
+      color: #222;
+      border-color: #c4b896;
+    }
+
+    .card.hidden.clickable { cursor: pointer; }
+
+    .card.hidden.clickable:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+      border-color: #f1c40f;
+    }
+
+    /* Carte sélectionnée (pas encore confirmée) */
+    .card.selected {
+      border-color: #f1c40f !important;
+      box-shadow: 0 0 20px rgba(241, 196, 15, 0.6), 0 0 40px rgba(241, 196, 15, 0.2) !important;
+      transform: translateY(-4px) scale(1.03);
+      background: #fff8dc !important;
+    }
+
+    /* Cartes révélées */
+    .card.red {
+      background: linear-gradient(145deg, #ff4444, #cc0000);
+      color: white;
+      border-color: #aa0000;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      box-shadow: 0 2px 8px rgba(231, 76, 60, 0.4);
+    }
+
+    .card.blue {
+      background: linear-gradient(145deg, #4499ff, #0055cc);
+      color: white;
+      border-color: #003da6;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      box-shadow: 0 2px 8px rgba(52, 152, 219, 0.4);
+    }
+
+    .card.neutral {
+      background: linear-gradient(145deg, #c8c4b0, #a09a84);
+      color: #333;
+      border-color: #8a8470;
+    }
+
+    .card.assassin {
+      background: linear-gradient(145deg, #222, #000);
+      color: #ff4444;
+      border-color: #ff0000;
+      text-shadow: 0 0 8px rgba(255,0,0,0.6);
+      box-shadow: 0 2px 12px rgba(0,0,0,0.6);
+    }
+
+    .card.revealed { opacity: 0.9; }
+
+    /* Spymaster view */
+    .card.spy-red {
+      background: #ffd4d4;
+      color: #880000;
+      border-color: var(--red);
+      border-width: 4px;
+      box-shadow: inset 0 0 12px rgba(231, 76, 60, 0.3);
+    }
+
+    .card.spy-blue {
+      background: #d0e4ff;
+      color: #003388;
+      border-color: var(--blue);
+      border-width: 4px;
+      box-shadow: inset 0 0 12px rgba(52, 152, 219, 0.3);
+    }
+
+    .card.spy-assassin {
+      background: #2a2a2a;
+      color: #ff5555;
+      border-color: #ff2222;
+      border-width: 4px;
+      box-shadow: inset 0 0 12px rgba(0,0,0,0.5), 0 0 8px rgba(255, 0, 0, 0.3);
+    }
+
+    .card.spy-neutral {
+      background: #e8e0c8;
+      color: #555;
+      border-color: #999;
+      border-width: 3px;
+      border-style: dashed;
+    }
+
+    /* Actions */
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 10px;
+    }
+
+    .clue-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .clue-form input {
+      padding: 10px 14px;
+      border: 2px solid #444;
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1em;
+      outline: none;
+    }
+
+    .clue-form input:focus { border-color: var(--blue); }
+    .clue-form input[type="text"] { width: 180px; }
+
+    .clue-form select {
+      padding: 10px 14px;
+      border: 2px solid #444;
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1em;
+      outline: none;
+      cursor: pointer;
+    }
+
+    .confirm-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .selected-word-display {
+      font-size: 1.2em;
+      color: #f1c40f;
+      font-weight: bold;
+    }
+
+    .confirm-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    /* Sidebar droite - Log */
+    .sidebar-right {
+      background: var(--bg2);
+      padding: 20px;
+      border-left: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-right h3 {
+      text-align: center;
+      margin-bottom: 12px;
+      font-size: 0.9em;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #888;
+    }
+
+    .log-area {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.8em;
+    }
+
+    .log-entry {
+      padding: 5px 8px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 5px;
+      line-height: 1.3;
+    }
+
+    .log-entry.separator {
+      color: #666;
+      text-align: center;
+      font-weight: bold;
+      background: none;
+    }
+
+    /* Game Over */
+    .gameover-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .gameover-overlay.show { display: flex; }
+
+    .gameover-box {
+      background: var(--bg2);
+      padding: 50px 60px;
+      border-radius: 20px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+
+    .gameover-box h2 { font-size: 2.2em; margin-bottom: 10px; }
+    .gameover-box h2.red { color: var(--red); }
+    .gameover-box h2.blue { color: var(--blue); }
+    .gameover-box p { margin-bottom: 24px; color: #aaa; font-size: 1.1em; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: var(--red);
+      color: white;
+      padding: 14px 24px;
+      border-radius: 10px;
+      font-weight: bold;
+      z-index: 200;
+      display: none;
+      animation: fadeIn 0.3s;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .toast.show { display: block; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .waiting-msg {
+      color: #888;
+      font-style: italic;
+      font-size: 0.9em;
+    }
+
+    .your-role-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.8em;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+
+    .your-role-badge.red { background: var(--red); color: white; }
+    .your-role-badge.blue { background: var(--blue); color: white; }
+
+    @media (max-width: 1100px) {
+      .game-layout { grid-template-columns: 1fr; }
+      .sidebar-left, .sidebar-right { border: none; border-bottom: 1px solid #333; }
+      .sidebar-left { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+      .team-section, .unassigned-section { min-width: 200px; }
+    }
+
+    @media (max-width: 600px) {
+      .board { gap: 5px; }
+      .card { font-size: 0.6em; aspect-ratio: 1.4; border-radius: 6px; }
+      .join-box { min-width: 280px; padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- ─── Écran de connexion ─── -->
+  <div id="joinScreen">
+    <h1>🕵️ Codenames</h1>
+    <p class="subtitle">Jeu de mots par équipes</p>
+    <div class="join-box">
+      <label>Ton pseudo</label>
+      <input type="text" id="inputName" placeholder="Ex: James" maxlength="20" autofocus>
+      <label>Code de la salle</label>
+      <input type="text" id="inputRoom" placeholder="Ex: GAME1" maxlength="10">
+      <button class="btn btn-primary" id="btnJoin">Rejoindre la salle</button>
+    </div>
+  </div>
+
+  <!-- ─── Écran de jeu ─── -->
+  <div id="gameScreen">
+    <div class="game-layout">
+
+      <!-- Sidebar gauche -->
+      <div class="sidebar-left">
+        <div>
+          <h3>Équipes</h3>
+          <div id="yourInfo" style="text-align:center; margin-bottom: 12px;"></div>
+
+          <div class="team-section red-team">
+            <div class="team-header red">
+              <span>🟥 Rouge <span id="redStartBadge" class="starting-badge" style="display:none">1er</span></span>
+              <span class="score" id="redScoreDisplay">0/0</span>
+            </div>
+            <ul class="player-list" id="redPlayerList"></ul>
+          </div>
+
+          <div class="team-section blue-team">
+            <div class="team-header blue">
+              <span>🟦 Bleue <span id="blueStartBadge" class="starting-badge" style="display:none">1er</span></span>
+              <span class="score" id="blueScoreDisplay">0/0</span>
+            </div>
+            <ul class="player-list" id="bluePlayerList"></ul>
+          </div>
+
+          <div class="unassigned-section" id="unassignedSection">
+            <div style="font-weight:bold; margin-bottom:4px; color:#aaa;">⬜ Non assignés</div>
+            <ul class="player-list" id="unassignedList"></ul>
+          </div>
+
+          <div class="team-buttons" id="teamButtons">
+            <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">🕵️ Maître-Espion Rouge</button>
+            <button class="btn btn-red btn-small" onclick="chooseTeam('red','operative')">🔍 Agent Rouge</button>
+            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','spymaster')">🕵️ Maître-Espion Bleu</button>
+            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','operative')">🔍 Agent Bleu</button>
+          </div>
+
+          <div style="margin-top:12px; text-align:center;">
+            <button class="btn btn-success btn-small" id="btnStart" style="display:none;" onclick="startGame()">🎮 Lancer la partie</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone principale -->
+      <div class="main-area">
+        <div class="game-header">
+          <div class="room-id" id="roomIdDisplay"></div>
+          <div id="turnInfo"></div>
+          <div class="clue-banner" id="clueBanner">
+            <div class="clue-word" id="clueWord"></div>
+            <div class="clue-meta" id="clueMeta"></div>
+          </div>
+        </div>
+
+        <div class="board" id="board"></div>
+
+        <div class="actions" id="actions"></div>
+      </div>
+
+      <!-- Sidebar droite -->
+      <div class="sidebar-right">
+        <h3>📜 Historique</h3>
+        <div class="log-area" id="logArea"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over -->
+  <div class="gameover-overlay" id="gameoverOverlay">
+    <div class="gameover-box">
+      <h2 id="gameoverTitle"></h2>
+      <p id="gameoverMsg"></p>
+      <button class="btn btn-primary btn-large" onclick="newGame()">🔄 Nouvelle partie</button>
+      <button class="btn btn-neutral" style="margin-left:10px;" onclick="closeOverlay()">Fermer</button>
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let state = null;
+
+    // ─── Auto-reconnexion au chargement ───
+    (function tryReconnect() {
+      const savedSession = localStorage.getItem('cn_sessionId');
+      const savedRoom = localStorage.getItem('cn_roomId');
+      const savedName = localStorage.getItem('cn_playerName');
+      if (savedSession && savedRoom && savedName) {
+        socket.emit('joinRoom', { roomId: savedRoom, playerName: savedName, sessionId: savedSession });
+      }
+    })();
+
+    // Sauvegarder la session quand le serveur la confirme
+    socket.on('session', ({ sessionId }) => {
+      localStorage.setItem('cn_sessionId', sessionId);
+    });
+
+    // ─── Connexion ───
+    document.getElementById('btnJoin').addEventListener('click', joinRoom);
+    document.getElementById('inputName').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('inputRoom').focus(); });
+    document.getElementById('inputRoom').addEventListener('keypress', e => { if (e.key === 'Enter') joinRoom(); });
+
+    function joinRoom() {
+      const name = document.getElementById('inputName').value.trim();
+      const room = document.getElementById('inputRoom').value.trim();
+      if (!name || !room) { showToast('Remplis ton pseudo et le code de salle !'); return; }
+      localStorage.setItem('cn_roomId', room.toUpperCase());
+      localStorage.setItem('cn_playerName', name);
+      const savedSession = localStorage.getItem('cn_sessionId');
+      socket.emit('joinRoom', { roomId: room, playerName: name, sessionId: savedSession || undefined });
+    }
+
+    function chooseTeam(team, role) { socket.emit('chooseTeam', { team, role }); }
+    function startGame() { socket.emit('startGame'); }
+    function newGame() { socket.emit('newGame'); closeOverlay(); }
+    function closeOverlay() { document.getElementById('gameoverOverlay').classList.remove('show'); }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+    // ─── Clue submission ───
+    function giveClue() {
+      const wordInput = document.getElementById('clueWordInput');
+      const countSelect = document.getElementById('clueCountSelect');
+      if (!wordInput || !countSelect) return;
+      const word = wordInput.value.trim();
+      const count = countSelect.value;
+      if (!word) { showToast('Entre un mot indice !'); return; }
+      socket.emit('giveClue', { word, count });
+    }
+
+    // ─── Card selection ───
+    function selectCard(index) {
+      socket.emit('selectCard', { index });
+    }
+
+    function confirmGuess() {
+      socket.emit('confirmGuess');
+    }
+
+    function endGuessing() {
+      socket.emit('endGuessing');
+    }
+
+    // ─── State reception ───
+    socket.on('gameState', (newState) => {
+      state = newState;
+      document.getElementById('joinScreen').style.display = 'none';
+      document.getElementById('gameScreen').style.display = 'block';
+      render();
+    });
+
+    socket.on('error', (msg) => { showToast(msg); });
+
+    // ─── Render ───
+    function render() {
+      if (!state) return;
+
+      document.getElementById('roomIdDisplay').textContent = `Salle : ${state.id}`;
+      document.getElementById('redScoreDisplay').textContent = `${state.redScore}/${state.redTotal}`;
+      document.getElementById('blueScoreDisplay').textContent = `${state.blueScore}/${state.blueTotal}`;
+      document.getElementById('redStartBadge').style.display = state.startingTeam === 'red' ? 'inline' : 'none';
+      document.getElementById('blueStartBadge').style.display = state.startingTeam === 'blue' ? 'inline' : 'none';
+
+      renderPlayers();
+      renderYourInfo();
+      renderTurnInfo();
+      renderBoard();
+      renderActions();
+      renderLog();
+
+      // Lobby controls
+      const isLobby = state.phase === 'lobby';
+      document.getElementById('teamButtons').style.display = isLobby ? 'flex' : 'none';
+      const canStart = isLobby && state.you && state.you.team && state.you.role;
+      document.getElementById('btnStart').style.display = canStart ? 'inline-block' : 'none';
+
+      // Game over
+      if (state.phase === 'gameover' && state.winner) {
+        const overlay = document.getElementById('gameoverOverlay');
+        const title = document.getElementById('gameoverTitle');
+        const msg = document.getElementById('gameoverMsg');
+        title.className = state.winner;
+        title.textContent = `🏆 Victoire ${state.winner === 'red' ? 'ROUGE' : 'BLEUE'} !`;
+        msg.textContent = 'Félicitations à l\'équipe gagnante !';
+        overlay.classList.add('show');
+      }
+    }
+
+    function renderPlayers() {
+      const redList = document.getElementById('redPlayerList');
+      const blueList = document.getElementById('bluePlayerList');
+      const unList = document.getElementById('unassignedList');
+      redList.innerHTML = ''; blueList.innerHTML = ''; unList.innerHTML = '';
+
+      for (const p of state.players) {
+        const li = document.createElement('li');
+        li.className = 'player-item';
+        const isYou = p.id === state.you?.id;
+        const roleName = p.role === 'spymaster' ? '🕵️ Maître-Espion' : p.role === 'operative' ? '🔍 Agent' : '';
+        li.innerHTML = `${isYou ? '<b>' : ''}${p.name}${isYou ? ' (toi)</b>' : ''} <span class="role-badge">${roleName}</span>`;
+        if (p.team === 'red') redList.appendChild(li);
+        else if (p.team === 'blue') blueList.appendChild(li);
+        else unList.appendChild(li);
+      }
+
+      document.getElementById('unassignedSection').style.display = unList.children.length > 0 ? 'block' : 'none';
+    }
+
+    function renderYourInfo() {
+      const div = document.getElementById('yourInfo');
+      if (!state.you || !state.you.team) {
+        div.innerHTML = '<span class="waiting-msg">Choisis ton équipe ↓</span>';
+        return;
+      }
+      const teamLabel = state.you.team === 'red' ? 'Rouge' : 'Bleue';
+      const roleLabel = state.you.role === 'spymaster' ? 'Maître-Espion' : 'Agent';
+      div.innerHTML = `<span class="your-role-badge ${state.you.team}">${teamLabel} • ${roleLabel}</span>`;
+    }
+
+    function renderTurnInfo() {
+      const div = document.getElementById('turnInfo');
+      const banner = document.getElementById('clueBanner');
+
+      if (state.phase === 'lobby') {
+        div.innerHTML = '<span class="waiting-msg">En attente des joueurs...</span>';
+        banner.classList.remove('show');
+        return;
+      }
+
+      if (state.phase === 'gameover') {
+        div.innerHTML = '';
+        banner.classList.remove('show');
+        return;
+      }
+
+      const teamName = state.currentTeam === 'red' ? 'ROUGE' : 'BLEUE';
+
+      if (state.phase === 'clue') {
+        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🕵️ ${teamName} — Indice du Maître-Espion</span>`;
+        banner.classList.remove('show');
+      } else if (state.phase === 'guess') {
+        const remaining = state.isUnlimited ? '∞' : (state.guessesMax - state.guessesUsed);
+        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🔍 ${teamName} — Devinez ! (${remaining} restant${remaining !== 1 ? 's' : ''})</span>`;
+
+        document.getElementById('clueWord').textContent = `« ${state.clue} »  →  ${state.clueCount}`;
+        document.getElementById('clueMeta').textContent = `${state.guessesUsed} trouvé(s) — ${remaining} essai(s) restant(s)`;
+        banner.classList.add('show');
+      }
+    }
+
+    function renderBoard() {
+      const board = document.getElementById('board');
+      board.innerHTML = '';
+
+      const isOp = state.you && state.you.role === 'operative';
+      const isMyTurn = state.you && state.you.team === state.currentTeam;
+      const canClick = isOp && isMyTurn && state.phase === 'guess';
+      const isSpy = state.you && state.you.role === 'spymaster';
+
+      for (let i = 0; i < state.cards.length; i++) {
+        const card = state.cards[i];
+        const div = document.createElement('div');
+        div.className = 'card';
+
+        if (card.revealed) {
+          div.classList.add(card.type, 'revealed');
+        } else if (isSpy) {
+          div.classList.add('hidden', `spy-${card.type}`);
+        } else {
+          div.classList.add('hidden');
+          if (canClick) {
+            div.classList.add('clickable');
+            div.addEventListener('click', () => selectCard(i));
+          }
+        }
+
+        // Highlight selected card
+        if (i === state.selectedCard && !card.revealed) {
+          div.classList.add('selected');
+        }
+
+        div.textContent = card.word;
+        board.appendChild(div);
+      }
+    }
+
+    function renderActions() {
+      const div = document.getElementById('actions');
+      div.innerHTML = '';
+
+      if (!state.you || !state.you.team) return;
+
+      const isMyTurn = state.you.team === state.currentTeam;
+      const isOp = state.you.role === 'operative';
+      const isSpy = state.you.role === 'spymaster';
+
+      // ── Phase CLUE : le spymaster de l'équipe active donne l'indice ──
+      if (state.phase === 'clue') {
+        if (isSpy && isMyTurn) {
+          div.innerHTML = `
+            <div class="clue-form">
+              <input type="text" id="clueWordInput" placeholder="Mot indice..." maxlength="30">
+              <select id="clueCountSelect">
+                <option value="0">0 (∞)</option>
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="∞">∞ (illimité)</option>
+              </select>
+              <button class="btn btn-warning btn-small" onclick="giveClue()">📨 Envoyer l'indice</button>
+            </div>
+          `;
+          setTimeout(() => {
+            const el = document.getElementById('clueWordInput');
+            if (el) {
+              el.focus();
+              el.addEventListener('keypress', e => { if (e.key === 'Enter') giveClue(); });
+            }
+          }, 50);
+        } else if (isSpy && !isMyTurn) {
+          div.innerHTML = '<span class="waiting-msg">⏳ En attente de l\'indice de l\'équipe adverse...</span>';
+        } else if (isOp && isMyTurn) {
+          div.innerHTML = '<span class="waiting-msg">⏳ Ton Maître-Espion réfléchit à un indice...</span>';
+        } else {
+          div.innerHTML = '<span class="waiting-msg">⏳ L\'équipe adverse joue...</span>';
+        }
+      }
+
+      // ── Phase GUESS : les agents sélectionnent et confirment ──
+      if (state.phase === 'guess') {
+        if (isOp && isMyTurn) {
+          if (state.selectedCard >= 0 && state.selectedCard < 25 && !state.cards[state.selectedCard].revealed) {
+            const selectedWord = state.cards[state.selectedCard].word;
+            div.innerHTML = `
+              <div class="confirm-zone">
+                <div class="selected-word-display">📌 Sélection : « ${selectedWord} »</div>
+                <div class="confirm-buttons">
+                  <button class="btn btn-success" onclick="confirmGuess()">✅ Confirmer</button>
+                  <button class="btn btn-neutral btn-small" onclick="endGuessing()">⏭️ Passer le tour</button>
+                </div>
+              </div>
+            `;
+          } else {
+            div.innerHTML = `
+              <div style="text-align:center">
+                <span class="waiting-msg">👆 Clique sur une carte pour la sélectionner</span>
+                <div style="margin-top:8px;">
+                  <button class="btn btn-neutral btn-small" onclick="endGuessing()">⏭️ Passer le tour</button>
+                </div>
+              </div>
+            `;
+          }
+        } else if (isSpy) {
+          const selectedInfo = state.selectedCard >= 0 ? ` — Carte sélectionnée : « ${state.cards[state.selectedCard].word} »` : '';
+          div.innerHTML = `<span class="waiting-msg">🔍 Les agents devinent...${selectedInfo}</span>`;
+        } else {
+          div.innerHTML = '<span class="waiting-msg">⏳ L\'équipe adverse devine...</span>';
+        }
+      }
+
+      // ── Game Over ──
+      if (state.phase === 'gameover') {
+        div.innerHTML = `<button class="btn btn-primary btn-large" onclick="newGame()">🔄 Nouvelle partie</button>`;
+      }
+    }
+
+    function renderLog() {
+      const logArea = document.getElementById('logArea');
+      logArea.innerHTML = '';
+      for (const entry of state.log) {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        if (entry.startsWith('─────')) div.classList.add('separator');
+        div.textContent = entry;
+        logArea.appendChild(div);
+      }
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+  </script>
+</body>
+</html>
