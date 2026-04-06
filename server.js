@@ -512,6 +512,34 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
+  socket.on('leaveRoom', () => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    const room = rooms[currentRoom];
+    const player = room.players[playerId];
+    if (player) {
+      if (player.disconnectTimer) {
+        clearTimeout(player.disconnectTimer);
+        player.disconnectTimer = null;
+      }
+      addLog(room, `👤 ${player.name} a quitté la salle.`);
+      delete room.players[playerId];
+      // Nettoyer la session
+      for (const [sid, sess] of Object.entries(sessions)) {
+        if (sess.playerId === playerId) {
+          delete sessions[sid];
+          break;
+        }
+      }
+      broadcastRoom(room);
+      cleanupRoom(currentRoom);
+    }
+    socket.leave(currentRoom);
+    currentRoom = null;
+    playerId = null;
+    // Dire au client de revenir à l'écran de connexion
+    socket.emit('leftRoom');
+  });
+
   socket.on('newGame', () => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];

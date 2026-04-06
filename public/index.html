@@ -192,7 +192,28 @@
       margin-bottom: 12px;
     }
 
-    .room-id { font-size: 0.85em; color: #666; margin-bottom: 6px; }
+    .room-id { font-size: 0.85em; color: #666; margin-bottom: 6px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+
+    .btn-leave {
+      background: rgba(255,255,255,0.08);
+      color: #e74c3c;
+      border: 1px solid rgba(231,76,60,0.3);
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 0.8em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .btn-leave:hover {
+      background: rgba(231,76,60,0.15);
+      border-color: var(--red);
+      transform: none;
+      box-shadow: none;
+    }
 
     .turn-indicator {
       display: inline-block;
@@ -668,6 +689,20 @@
     function newGame() { socket.emit('newGame'); closeOverlay(); }
     function closeOverlay() { document.getElementById('gameoverOverlay').classList.remove('show'); }
 
+    function leaveRoom() {
+      if (!confirm('Quitter la salle ?')) return;
+      socket.emit('leaveRoom');
+    }
+
+    socket.on('leftRoom', () => {
+      localStorage.removeItem('cn_sessionId');
+      localStorage.removeItem('cn_roomId');
+      state = null;
+      document.getElementById('gameScreen').style.display = 'none';
+      document.getElementById('joinScreen').style.display = 'flex';
+      document.getElementById('gameoverOverlay').classList.remove('show');
+    });
+
     function showToast(msg) {
       const t = document.getElementById('toast');
       t.textContent = msg;
@@ -713,7 +748,7 @@
     function render() {
       if (!state) return;
 
-      document.getElementById('roomIdDisplay').textContent = `Salle : ${state.id}`;
+      document.getElementById('roomIdDisplay').innerHTML = `<span>Salle : ${state.id}</span><button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>`;
       document.getElementById('redScoreDisplay').textContent = `${state.redScore}/${state.redTotal}`;
       document.getElementById('blueScoreDisplay').textContent = `${state.blueScore}/${state.blueTotal}`;
       document.getElementById('redStartBadge').style.display = state.startingTeam === 'red' ? 'inline' : 'none';
