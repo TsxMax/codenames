@@ -920,12 +920,23 @@
               </select>
               <button class="btn btn-warning btn-small" onclick="giveClue()">📨 Envoyer l'indice</button>
             </div>
+            <div style="font-size:0.75em; color:#888; margin-top:4px;">📏 Règle : un seul mot, sans espace</div>
+            <div id="clueSpaceWarning" style="display:none; color:#e74c3c; font-size:0.85em; font-weight:bold; margin-top:4px;">⚠️ Un seul mot ! Les espaces ne sont pas autorisés.</div>
           `;
           setTimeout(() => {
             const el = document.getElementById('clueWordInput');
             if (el) {
               el.focus();
               el.addEventListener('keypress', e => { if (e.key === 'Enter') giveClue(); });
+              el.addEventListener('input', () => {
+                const warn = document.getElementById('clueSpaceWarning');
+                if (el.value.includes(' ')) {
+                  el.value = el.value.replace(/\s/g, '');
+                  if (warn) warn.style.display = 'block';
+                } else {
+                  if (warn) warn.style.display = 'none';
+                }
+              });
             }
           }, 50);
         } else if (!isMyTurn) {

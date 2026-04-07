@@ -404,6 +404,7 @@ io.on('connection', (socket) => {
     const numCount = isInfinity ? 0 : parseInt(count);
 
     if (!word) { socket.emit('error', 'Donne un mot indice !'); return; }
+    if (word.includes(' ')) { socket.emit('error', '⚠️ Un seul mot ! Les espaces ne sont pas autorisés.'); return; }
     if (!isInfinity && (isNaN(numCount) || numCount < 0 || numCount > 9)) {
       socket.emit('error', 'Nombre invalide (0-9 ou ∞).'); return;
     }
