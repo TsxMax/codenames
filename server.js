@@ -604,5 +604,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 2228;
 server.listen(PORT, () => {
-  console.log(`🎮 Codenames server running on http://localhost:${PORT}`);
+  console.log(`🎮 MemoryGuess server running on http://localhost:${PORT}`);
 });
