@@ -25,6 +25,9 @@
 
     html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
+    /* Tous les boutons : pas de délai de tap ni de zoom double-tap sur mobile */
+    button, select { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: var(--bg);
@@ -289,11 +292,13 @@
       text-transform: uppercase;
       letter-spacing: 1px;
       cursor: default;
-      transition: all 0.25s;
+      /* Propriétés explicites (pas `all`) : moins coûteux sur vieux mobiles */
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
       text-align: center;
       padding: 6px;
       word-break: break-word;
       overflow-wrap: anywhere;
+      -webkit-hyphens: auto;
       hyphens: auto;
       line-height: 1.15;
       border: 3px solid transparent;
@@ -549,6 +554,26 @@
 
     .toast.show { display: block; }
 
+    /* ─── Bannière de reconnexion ─── */
+    #connBanner {
+      position: fixed;
+      top: calc(10px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      background: #f39c12;
+      color: #222;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 0.85em;
+      z-index: 300;
+      display: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      white-space: nowrap;
+    }
+
+    #connBanner.show { display: block; animation: fadeIn 0.3s; }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(-10px); }
       to { opacity: 1; transform: translateY(0); }
@@ -571,6 +596,7 @@
 
     .your-role-badge.red { background: var(--red); color: white; }
     .your-role-badge.blue { background: var(--blue); color: white; }
+    .your-role-badge.spec { background: #555; color: white; }
 
     .actions:empty { display: none; }
 
@@ -728,9 +754,9 @@
         gap: 8px;
         margin-bottom: 0;
         padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
-        background: rgba(26, 26, 46, 0.95);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        /* Fond opaque volontairement : backdrop-filter empêche Safari iOS
+           de repeindre les cartes situées derrière la barre. */
+        background: var(--bg);
         border-top: 1px solid #2c2c46;
       }
 
@@ -809,6 +835,7 @@
 <body>
 
   <div id="toast" class="toast"></div>
+  <div id="connBanner">📡 Connexion perdue — reconnexion…</div>
 
   <!-- ─── Écran de connexion ─── -->
   <div id="joinScreen">
@@ -820,6 +847,7 @@
       <label>Code de la salle</label>
       <input type="text" id="inputRoom" placeholder="Ex: GAME1" maxlength="10">
       <button class="btn btn-primary" id="btnJoin">Rejoindre la salle</button>
+      <button class="btn btn-neutral" id="btnJoinSpec">👁️ Regarder en spectateur</button>
     </div>
   </div>
 
@@ -854,6 +882,11 @@
             <ul class="player-list" id="unassignedList"></ul>
           </div>
 
+          <div class="unassigned-section" id="spectatorSection" style="display:none;">
+            <div style="font-weight:bold; margin-bottom:4px; color:#aaa;">👁️ Spectateurs</div>
+            <ul class="player-list" id="spectatorList"></ul>
+          </div>
+
           <div class="team-buttons" id="teamButtons">
             <div style="text-align:center; color:#aaa; font-size:0.75em; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Mode Solo (1 joueur/équipe)</div>
             <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">👤 Solo Rouge</button>
@@ -874,7 +907,11 @@
       <!-- Zone principale -->
       <div class="main-area">
         <div class="game-header">
-          <div class="room-id" id="roomIdDisplay"></div>
+          <div class="room-id" id="roomIdDisplay">
+            <span id="roomLabel"></span>
+            <button class="btn-icon" id="btnSound" title="Activer / couper le son">🔊</button>
+            <button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>
+          </div>
           <div id="turnInfo"></div>
           <div class="clue-banner" id="clueBanner">
             <div class="clue-word" id="clueWord"></div>
@@ -991,8 +1028,14 @@
     function toggleSound() {
       soundOn = !soundOn;
       localStorage.setItem('mg_sound', soundOn ? 'on' : 'off');
-      if (soundOn) SFX.select();
-      render();
+      if (soundOn) { getAudio(); SFX.select(); }
+      updateSoundBtn();
+    }
+
+    function updateSoundBtn() {
+      const b = document.getElementById('btnSound');
+      b.textContent = soundOn ? '🔊' : '🔇';
+      b.classList.toggle('off', !soundOn);
     }
 
     /* Suivi des révélations pour n'animer que les nouvelles cartes */
@@ -1002,15 +1045,44 @@
     let flipQueue = [];       // index des cartes à animer au prochain renderBoard
     let shakeBoard = false;
 
-    // ─── Auto-reconnexion au chargement ───
-    (function tryReconnect() {
+    /* ─── Connexion & reconnexion socket ───
+       `connect` se déclenche au chargement ET après chaque coupure (iOS Safari
+       tue le socket dès que l'onglet passe en arrière-plan ou que l'écran se
+       verrouille). On re-rejoint donc la salle à chaque fois : sans ça, le
+       serveur ne connaît plus ce socket et le jeu semble gelé au retour. */
+    socket.on('connect', () => {
+      setConnBanner(false);
       const savedSession = localStorage.getItem('cn_sessionId');
       const savedRoom = localStorage.getItem('cn_roomId');
       const savedName = localStorage.getItem('cn_playerName');
       if (savedSession && savedRoom && savedName) {
-        socket.emit('joinRoom', { roomId: savedRoom, playerName: savedName, sessionId: savedSession });
+        socket.emit('joinRoom', {
+          roomId: savedRoom,
+          playerName: savedName,
+          sessionId: savedSession,
+          // utilisé seulement si la session a expiré côté serveur
+          spectator: localStorage.getItem('cn_spectator') === '1',
+        });
       }
-    })();
+    });
+
+    socket.on('disconnect', () => {
+      // Bannière seulement si on est en salle : sur l'écran d'accueil ça n'a pas d'intérêt
+      if (state) setConnBanner(true);
+    });
+
+    function setConnBanner(show) {
+      document.getElementById('connBanner').classList.toggle('show', show);
+    }
+
+    // Retour au premier plan : socket.io peut mettre plusieurs secondes à
+    // retenter tout seul — on force la reconnexion immédiatement.
+    function wakeSocket() {
+      if (socket.disconnected) socket.connect();
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeSocket(); });
+    window.addEventListener('pageshow', wakeSocket);   // restauration depuis le bfcache iOS
+    window.addEventListener('focus', wakeSocket);
 
     // Sauvegarder la session quand le serveur la confirme
     socket.on('session', ({ sessionId }) => {
@@ -1018,18 +1090,31 @@
     });
 
     // ─── Connexion ───
-    document.getElementById('btnJoin').addEventListener('click', joinRoom);
-    document.getElementById('inputName').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('inputRoom').focus(); });
-    document.getElementById('inputRoom').addEventListener('keypress', e => { if (e.key === 'Enter') joinRoom(); });
+    document.getElementById('btnJoin').addEventListener('click', () => joinRoom(false));
+    document.getElementById('btnJoinSpec').addEventListener('click', () => joinRoom(true));
+    document.getElementById('btnSound').addEventListener('click', toggleSound);
+    updateSoundBtn();
 
-    function joinRoom() {
+    // iOS n'autorise l'audio qu'après un geste : on débloque au premier toucher
+    document.addEventListener('touchstart', () => getAudio(), { once: true, passive: true });
+    document.addEventListener('pointerdown', () => getAudio(), { once: true });
+    document.getElementById('inputName').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('inputRoom').focus(); });
+    document.getElementById('inputRoom').addEventListener('keypress', e => { if (e.key === 'Enter') joinRoom(false); });
+
+    function joinRoom(asSpectator) {
       const name = document.getElementById('inputName').value.trim();
       const room = document.getElementById('inputRoom').value.trim();
       if (!name || !room) { showToast('Remplis ton pseudo et le code de salle !'); return; }
       localStorage.setItem('cn_roomId', room.toUpperCase());
       localStorage.setItem('cn_playerName', name);
+      localStorage.setItem('cn_spectator', asSpectator ? '1' : '');
       const savedSession = localStorage.getItem('cn_sessionId');
-      socket.emit('joinRoom', { roomId: room, playerName: name, sessionId: savedSession || undefined });
+      socket.emit('joinRoom', { roomId: room, playerName: name, sessionId: savedSession || undefined, spectator: !!asSpectator });
+    }
+
+    function joinAsPlayer() {
+      localStorage.setItem('cn_spectator', '');
+      socket.emit('joinAsPlayer');
     }
 
     function chooseTeam(team, role) { getAudio(); SFX.select(); socket.emit('chooseTeam', { team, role }); }
@@ -1046,10 +1131,15 @@
     socket.on('leftRoom', () => {
       localStorage.removeItem('cn_sessionId');
       localStorage.removeItem('cn_roomId');
+      localStorage.removeItem('cn_spectator');
       state = null;
       seenRevealed = new Set();
       boardReady = false;
       prevPhase = null;
+      boardWords = [];
+      actionsSig = null;
+      gameoverShown = false;
+      setConnBanner(false);
       document.getElementById('gameScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'flex';
       document.getElementById('gameoverOverlay').classList.remove('show');
@@ -1153,10 +1243,7 @@
     function render() {
       if (!state) return;
 
-      document.getElementById('roomIdDisplay').innerHTML =
-        `<span>Salle : ${state.id}</span>` +
-        `<button class="btn-icon ${soundOn ? '' : 'off'}" onclick="toggleSound()" title="Activer / couper le son">${soundOn ? '🔊' : '🔇'}</button>` +
-        `<button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>`;
+      document.getElementById('roomLabel').textContent = `Salle : ${state.id}`;
       document.getElementById('redScoreDisplay').textContent = `${state.redScore}/${state.redTotal}`;
       document.getElementById('blueScoreDisplay').textContent = `${state.blueScore}/${state.blueTotal}`;
       document.getElementById('redStartBadge').style.display = state.startingTeam === 'red' ? 'inline' : 'none';
@@ -1169,17 +1256,23 @@
       renderActions();
       renderLog();
 
-      // Lobby controls
+      // Lobby controls (cachés pour les spectateurs)
       const isLobby = state.phase === 'lobby';
-      document.getElementById('teamButtons').style.display = isLobby ? '' : 'none';
-      const canStart = isLobby && state.you && state.you.team && state.you.role;
+      const isSpec = state.you && state.you.spectator;
+      document.getElementById('teamButtons').style.display = (isLobby && !isSpec) ? '' : 'none';
+      const canStart = isLobby && !isSpec && state.you && state.you.team && state.you.role;
       document.getElementById('btnStart').style.display = canStart ? 'inline-block' : 'none';
 
-      // Game over
+      // Game over : l'overlay ne s'ouvre qu'à l'ENTRÉE en fin de partie.
+      // Avant, chaque broadcast le rouvrait alors qu'on regardait la grille.
       if (state.phase === 'gameover' && state.winner) {
         renderGameOver();
+      } else {
+        gameoverShown = false;
       }
     }
+
+    let gameoverShown = false;
 
     function renderGameOver() {
       const overlay = document.getElementById('gameoverOverlay');
@@ -1209,31 +1302,43 @@
       document.getElementById('goRedBox').classList.toggle('winner', winner === 'red');
       document.getElementById('goBlueBox').classList.toggle('winner', winner === 'blue');
 
-      overlay.classList.add('show');
+      if (!gameoverShown) {
+        gameoverShown = true;
+        overlay.classList.add('show');
+      }
     }
 
     function renderPlayers() {
       const redList = document.getElementById('redPlayerList');
       const blueList = document.getElementById('bluePlayerList');
       const unList = document.getElementById('unassignedList');
-      redList.innerHTML = ''; blueList.innerHTML = ''; unList.innerHTML = '';
+      const specList = document.getElementById('spectatorList');
+      redList.innerHTML = ''; blueList.innerHTML = ''; unList.innerHTML = ''; specList.innerHTML = '';
 
       for (const p of state.players) {
         const li = document.createElement('li');
         li.className = 'player-item';
         const isYou = p.id === state.you?.id;
-        const roleName = ROLE_FR[p.role] || '';
-        li.innerHTML = `${isYou ? '<b>' : ''}${p.name}${isYou ? ' (toi)</b>' : ''} <span class="role-badge">${roleName}</span>`;
-        if (p.team === 'red') redList.appendChild(li);
+        const roleName = p.spectator ? '👁️' : (ROLE_FR[p.role] || '');
+        const offline = p.online ? '' : ' <span class="role-badge">📴 hors-ligne</span>';
+        li.innerHTML = `${isYou ? '<b>' : ''}${p.name}${isYou ? ' (toi)</b>' : ''} <span class="role-badge">${roleName}</span>${offline}`;
+        if (p.spectator) specList.appendChild(li);
+        else if (p.team === 'red') redList.appendChild(li);
         else if (p.team === 'blue') blueList.appendChild(li);
         else unList.appendChild(li);
       }
 
       document.getElementById('unassignedSection').style.display = unList.children.length > 0 ? 'block' : 'none';
+      document.getElementById('spectatorSection').style.display = specList.children.length > 0 ? 'block' : 'none';
     }
 
     function renderYourInfo() {
       const div = document.getElementById('yourInfo');
+      if (state.you && state.you.spectator) {
+        div.innerHTML = '<span class="your-role-badge spec">👁️ Spectateur</span><br>' +
+          '<button class="btn btn-neutral btn-small" style="margin-top:6px;" onclick="joinAsPlayer()">🎮 Devenir joueur</button>';
+        return;
+      }
       if (!state.you || !state.you.team) {
         div.innerHTML = '<span class="waiting-msg">Choisis ton équipe ↓</span>';
         return;
@@ -1276,62 +1381,89 @@
       }
     }
 
+    /* Le plateau est mis à jour EN PLACE : les 25 cartes ne sont recréées que
+       si les mots changent (nouvelle partie). Recréer les noeuds à chaque
+       message serveur faisait perdre la cible du tap sur iOS Safari. */
+    let boardWords = [];
+    let boardDelegated = false;
+
+    function ensureBoardDelegate(board) {
+      if (boardDelegated) return;
+      boardDelegated = true;
+      // Un seul écouteur pour tout le plateau, jamais réattaché
+      board.addEventListener('click', (e) => {
+        const cell = e.target.closest('.card');
+        if (!cell || !cell.classList.contains('clickable')) return;
+        selectCard(Number(cell.dataset.index));
+      });
+    }
+
     function renderBoard() {
       const board = document.getElementById('board');
-      board.innerHTML = '';
+      ensureBoardDelegate(board);
 
       const isSolo = state.you && state.you.solo;
       const isOp = state.you && state.you.role === 'operative';
       const isMyTurn = state.you && state.you.team === state.currentTeam;
       const isSpy = state.you && state.you.role === 'spymaster';
+      const isSpec = state.you && state.you.spectator;
       const isOver = state.phase === 'gameover';
-      // En fin de partie la grille est dévoilée à tout le monde
-      const seesColors = isSpy || isSolo || isOver;
+      // Indiceur, solo, spectateur : couleurs visibles ; fin de partie : tout le monde
+      const seesColors = isSpy || isSolo || isSpec || isOver;
       // Solo player can click during guess phase; operatives too
       const canClick = (isOp || isSolo) && isMyTurn && state.phase === 'guess';
       const lastIndex = state.lastReveal ? state.lastReveal.index : -1;
 
+      // Reconstruction uniquement si la grille de mots a changé
+      const words = state.cards.map(c => c.word);
+      const needsRebuild = boardWords.length !== words.length
+        || words.some((w, i) => w !== boardWords[i]);
+
+      if (needsRebuild) {
+        board.innerHTML = '';
+        for (let i = 0; i < words.length; i++) {
+          const div = document.createElement('div');
+          div.className = 'card';
+          div.dataset.index = i;
+          div.textContent = words[i];
+          board.appendChild(div);
+        }
+        boardWords = words;
+      }
+
       for (let i = 0; i < state.cards.length; i++) {
         const card = state.cards[i];
-        const div = document.createElement('div');
-        div.className = 'card';
+        const div = board.children[i];
+        if (!div) continue;
+
+        const cls = ['card'];
 
         if (card.revealed) {
-          div.classList.add(card.type, 'revealed');
+          cls.push(card.type, 'revealed');
         } else if (seesColors) {
           // Indiceur, solo, ou fin de partie : couleurs visibles
-          div.classList.add('hidden', `spy-${card.type}`);
-          if (isOver) div.classList.add('postgame');
-          if (canClick) {
-            div.classList.add('clickable');
-            div.addEventListener('click', () => selectCard(i));
-          }
+          cls.push('hidden', `spy-${card.type}`);
+          if (isOver) cls.push('postgame');
+          if (canClick) cls.push('clickable');
         } else {
-          div.classList.add('hidden');
-          if (canClick) {
-            div.classList.add('clickable');
-            div.addEventListener('click', () => selectCard(i));
-          }
+          cls.push('hidden');
+          if (canClick) cls.push('clickable');
         }
 
-        // Highlight selected card
-        if (i === state.selectedCard && !card.revealed) {
-          div.classList.add('selected');
-        }
+        // Carte sélectionnée, pas encore confirmée
+        if (i === state.selectedCard && !card.revealed) cls.push('selected');
 
         // Dernier mot retourné : reste mis en avant
-        if (i === lastIndex && card.revealed && !isOver) {
-          div.classList.add('last-revealed');
-        }
+        if (i === lastIndex && card.revealed && !isOver) cls.push('last-revealed');
 
         // Animation de retournement pour les cartes tout juste révélées
         if (flipQueue.includes(i)) {
-          div.classList.add('flip-in');
+          cls.push('flip-in');
           div.addEventListener('animationend', () => div.classList.remove('flip-in'), { once: true });
         }
 
-        div.textContent = card.word;
-        board.appendChild(div);
+        const next = cls.join(' ');
+        if (div.className !== next) div.className = next;
       }
 
       if (shakeBoard) {
@@ -1343,11 +1475,27 @@
       shakeBoard = false;
     }
 
+    /* La zone d'actions n'est reconstruite que si son contenu doit VRAIMENT
+       changer (signature). Sinon, chaque broadcast serveur (un joueur arrive,
+       un log, une reconnexion) détruisait le formulaire d'indice : saisie
+       perdue et clavier mobile refermé en pleine frappe. */
+    let actionsSig = null;
+
     function renderActions() {
       const div = document.getElementById('actions');
-      div.innerHTML = '';
 
-      if (!state.you || !state.you.team) return;
+      if (state.you && state.you.spectator && state.phase !== 'lobby' && state.phase !== 'gameover') {
+        if (actionsSig !== 'spec') {
+          div.innerHTML = '<span class="waiting-msg">👁️ Tu regardes la partie en spectateur</span>';
+          actionsSig = 'spec';
+        }
+        return;
+      }
+
+      if (!state.you || !state.you.team) {
+        if (actionsSig !== 'none') { div.innerHTML = ''; actionsSig = 'none'; }
+        return;
+      }
 
       const isMyTurn = state.you.team === state.currentTeam;
       const isOp = state.you.role === 'operative';
@@ -1357,12 +1505,23 @@
       const canGiveClue = isMyTurn && (isSpy || isSolo);
       const canGuess = isMyTurn && (isOp || isSolo);
 
+      // Mot actuellement sélectionné (affiché dans la zone de confirmation)
+      const selWord = (state.phase === 'guess' && state.selectedCard >= 0
+        && state.cards[state.selectedCard] && !state.cards[state.selectedCard].revealed)
+        ? state.cards[state.selectedCard].word : '';
+
+      const sig = [state.phase, isMyTurn, isOp, isSpy, isSolo, canGiveClue, canGuess, selWord].join('|');
+      if (sig === actionsSig) return;
+      actionsSig = sig;
+      div.innerHTML = '';
+
       // ── Phase CLUE : donner un indice ──
       if (state.phase === 'clue') {
         if (canGiveClue) {
           div.innerHTML = `
             <div class="clue-form">
-              <input type="text" id="clueWordInput" placeholder="Mot indice..." maxlength="30">
+              <input type="text" id="clueWordInput" placeholder="Mot indice..." maxlength="30"
+                autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="send">
               <select id="clueCountSelect">
                 <option value="0">0 (∞)</option>
                 <option value="1" selected>1</option>
@@ -1384,7 +1543,9 @@
           setTimeout(() => {
             const el = document.getElementById('clueWordInput');
             if (el) {
-              el.focus();
+              // Focus auto uniquement sur desktop : sur mobile ça ouvrait
+              // le clavier de force et masquait la moitié de la grille
+              if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) el.focus();
               el.addEventListener('keypress', e => { if (e.key === 'Enter') giveClue(); });
               el.addEventListener('input', () => {
                 const warn = document.getElementById('clueSpaceWarning');

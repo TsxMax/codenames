@@ -279,6 +279,7 @@ function canPlayerGuess(room, player) {
 
 function canPlayerSeeBoard(room, player) {
   if (!player) return false;
+  if (player.spectator) return true;   // le spectateur voit toutes les couleurs
   if (player.role === 'spymaster') return true;
   if (isPlayerSolo(room, player)) return true;
   return false;
@@ -305,6 +306,7 @@ function getRoomState(room, playerId) {
       team: p.team,
       role: p.role,
       online: p.online,
+      spectator: !!p.spectator,
     })),
     clue: room.clue,
     clueCount: room.clueCount,
@@ -322,7 +324,7 @@ function getRoomState(room, playerId) {
     loser: room.loser,
     lastReveal: room.lastReveal,
     log: room.log,
-    you: player ? { id: player.id, name: player.name, team: player.team, role: player.role, solo: isPlayerSolo(room, player) } : null,
+    you: player ? { id: player.id, name: player.name, team: player.team, role: player.role, solo: isPlayerSolo(room, player), spectator: !!player.spectator } : null,
   };
 }
 
@@ -381,9 +383,11 @@ io.on('connection', (socket) => {
   let playerId = null;
 
   // ── Rejoindre une salle (nouveau joueur ou reconnexion) ──
-  socket.on('joinRoom', ({ roomId, playerName, sessionId }) => {
-    roomId = roomId.toUpperCase().trim();
-    playerName = (playerName || 'Joueur').trim().substring(0, 20);
+  socket.on('joinRoom', (data) => {
+    if (!data || typeof data.roomId !== 'string' || !data.roomId.trim()) return;
+    const roomId = data.roomId.toUpperCase().trim().substring(0, 10);
+    const playerName = (typeof data.playerName === 'string' && data.playerName.trim() ? data.playerName : 'Joueur').trim().substring(0, 20);
+    const sessionId = typeof data.sessionId === 'string' ? data.sessionId : null;
 
     if (!rooms[roomId]) {
       rooms[roomId] = createRoom(roomId);
@@ -402,11 +406,15 @@ io.on('connection', (socket) => {
           clearTimeout(player.disconnectTimer);
           player.disconnectTimer = null;
         }
+        // Le client re-join à CHAQUE reconnexion socket (mise en veille du
+        // téléphone, etc.) : on ne logue que les vraies reconnexions pour
+        // ne pas spammer l'historique.
+        const wasOffline = !player.online;
         player.socket = socket;
         player.online = true;
         currentRoom = roomId;
         socket.join(roomId);
-        addLog(room, `🔄 ${player.name} s'est reconnecté.`);
+        if (wasOffline) addLog(room, `🔄 ${player.name} s'est reconnecté.`);
         socket.emit('session', { sessionId });
         broadcastRoom(room);
         reconnected = true;
@@ -419,11 +427,14 @@ io.on('connection', (socket) => {
       playerId = newSessionId; // use session as player id for stability
       currentRoom = roomId;
 
+      const spectator = !!data.spectator;
+
       room.players[playerId] = {
         id: playerId,
         name: playerName,
         team: null,
         role: null,
+        spectator,
         socket,
         online: true,
         disconnectTimer: null,
@@ -433,20 +444,40 @@ io.on('connection', (socket) => {
         roomId,
         playerId,
         playerName,
+        spectator,
       };
 
       socket.join(roomId);
       socket.emit('session', { sessionId: newSessionId });
-      addLog(room, `👤 ${playerName} a rejoint la salle.`);
+      addLog(room, spectator ? `👁️ ${playerName} regarde en spectateur.` : `👤 ${playerName} a rejoint la salle.`);
       broadcastRoom(room);
     }
   });
 
-  socket.on('chooseTeam', ({ team, role }) => {
+  // ── Un spectateur décide de jouer : il rejoint les non-assignés ──
+  socket.on('joinAsPlayer', () => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    const room = rooms[currentRoom];
+    const player = room.players[playerId];
+    if (!player || !player.spectator) return;
+
+    player.spectator = false;
+    for (const sess of Object.values(sessions)) {
+      if (sess.playerId === playerId) { sess.spectator = false; break; }
+    }
+    addLog(room, `👤 ${player.name} passe de spectateur à joueur.`);
+    broadcastRoom(room);
+  });
+
+  socket.on('chooseTeam', ({ team, role } = {}) => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
     const player = room.players[playerId];
     if (!player) return;
+    if (player.spectator) {
+      socket.emit('error', 'Tu es en mode spectateur. Clique sur « Devenir joueur » pour rejoindre une équipe.');
+      return;
+    }
     if (room.phase !== 'lobby') return;
     if (!['red', 'blue'].includes(team)) return;
     if (!['spymaster', 'operative'].includes(role)) return;
@@ -491,7 +522,7 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('giveClue', ({ word, count }) => {
+  socket.on('giveClue', ({ word, count } = {}) => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
     if (room.phase !== 'clue') return;
@@ -499,7 +530,7 @@ io.on('connection', (socket) => {
     const player = room.players[playerId];
     if (!player || !canPlayerGiveClue(room, player)) return;
 
-    word = (word || '').trim().toUpperCase();
+    word = String(word || '').trim().toUpperCase().substring(0, 30);
     const isInfinity = count === '∞' || count === 'infinity' || count === '*';
     const numCount = isInfinity ? 0 : parseInt(count);
 
@@ -523,14 +554,15 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('selectCard', ({ index }) => {
+  socket.on('selectCard', ({ index } = {}) => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
     if (room.phase !== 'guess') return;
 
     const player = room.players[playerId];
     if (!player || !canPlayerGuess(room, player)) return;
-    if (index < 0 || index >= 25) return;
+    index = Number(index);
+    if (!Number.isInteger(index) || index < 0 || index >= 25) return;
     if (room.cards[index].revealed) return;
 
     room.selectedCard = index;
@@ -623,7 +655,8 @@ io.on('connection', (socket) => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
     const player = room.players[playerId];
-    if (player) {
+    // Même garde anti-zombie : un vieil onglet ne doit pas éjecter le joueur actif
+    if (player && player.socket === socket) {
       if (player.disconnectTimer) {
         clearTimeout(player.disconnectTimer);
         player.disconnectTimer = null;
@@ -682,7 +715,12 @@ io.on('connection', (socket) => {
     if (currentRoom && rooms[currentRoom]) {
       const room = rooms[currentRoom];
       const player = room.players[playerId];
-      if (player) {
+      /* Garde anti-zombie : quand un joueur se reconnecte, son NOUVEAU socket
+         remplace player.socket. L'ANCIEN socket finit par émettre son
+         `disconnect` (timeout réseau ~30 s plus tard) — sans cette garde, il
+         marquait le joueur hors-ligne et écrasait le socket actif : le joueur
+         pourtant présent ne recevait plus rien. */
+      if (player && player.socket === socket) {
         player.online = false;
         player.socket = null;
         addLog(room, `⚠️ ${player.name} s'est déconnecté (reconnexion possible).`);
@@ -707,6 +745,15 @@ io.on('connection', (socket) => {
       }
     }
   });
+});
+
+// Dernier filet : un bug dans un handler ne doit pas tuer le process
+// (toutes les salles sont en mémoire — un crash = toutes les parties perdues).
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Exception non gérée :', err);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('⚠️ Rejet non géré :', err);
 });
 
 const PORT = process.env.PORT || 2228;
