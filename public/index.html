@@ -950,31 +950,7 @@
           </div>
 
           <div style="margin-top:12px; text-align:center;">
-            <div id="timerConfig" style="display:none; margin-bottom:8px;">
-              <div class="timer-config-row">
-                <label>🎯 Timer Indiceur</label>
-                <select id="timerClueSelect" class="timer-select">
-                  <option value="0" selected>Sans timer</option>
-                  <option value="30">30 secondes</option>
-                  <option value="60">60 secondes</option>
-                  <option value="90">90 secondes</option>
-                  <option value="120">2 minutes</option>
-                  <option value="180">3 minutes</option>
-                </select>
-              </div>
-              <div class="timer-config-row">
-                <label>🔍 Timer Devineurs</label>
-                <select id="timerGuessSelect" class="timer-select">
-                  <option value="0" selected>Sans timer</option>
-                  <option value="30">30 secondes</option>
-                  <option value="60">60 secondes</option>
-                  <option value="90">90 secondes</option>
-                  <option value="120">2 minutes</option>
-                  <option value="180">3 minutes</option>
-                </select>
-              </div>
-            </div>
-            <button class="btn btn-success btn-small" id="btnStart" style="display:none;" onclick="startGame()">🎮 Lancer la partie</button>
+            <button class="btn btn-success btn-small" id="btnStart" style="display:none;" onclick="openStartModal()">🎮 Lancer la partie</button>
           </div>
         </div>
       </div>
@@ -1004,6 +980,43 @@
       <div class="sidebar-right">
         <h3>📜 Historique</h3>
         <div class="log-area" id="logArea"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Options de lancement -->
+  <div class="gameover-overlay" id="startModal">
+    <div class="gameover-box">
+      <div class="gameover-emoji">⚙️</div>
+      <h2 style="font-size:1.4em;">Options de partie</h2>
+      <p class="gameover-hint">Les timers sont optionnels : à l'expiration, l'équipe passe son tour.</p>
+
+      <div class="timer-config-row">
+        <label>🎯 Timer Indiceur</label>
+        <select id="timerClueSelect" class="timer-select">
+          <option value="0" selected>Sans timer</option>
+          <option value="30">30 secondes</option>
+          <option value="60">60 secondes</option>
+          <option value="90">90 secondes</option>
+          <option value="120">2 minutes</option>
+          <option value="180">3 minutes</option>
+        </select>
+      </div>
+      <div class="timer-config-row" style="margin-bottom:18px;">
+        <label>🔍 Timer Devineurs</label>
+        <select id="timerGuessSelect" class="timer-select">
+          <option value="0" selected>Sans timer</option>
+          <option value="30">30 secondes</option>
+          <option value="60">60 secondes</option>
+          <option value="90">90 secondes</option>
+          <option value="120">2 minutes</option>
+          <option value="180">3 minutes</option>
+        </select>
+      </div>
+
+      <div class="gameover-actions">
+        <button class="btn btn-success btn-large" onclick="confirmStartGame()">🎮 Lancer la partie</button>
+        <button class="btn btn-neutral btn-small" onclick="closeStartModal()">Annuler</button>
       </div>
     </div>
   </div>
@@ -1195,14 +1208,22 @@
 
     function chooseTeam(team, role) { getAudio(); SFX.select(); socket.emit('chooseTeam', { team, role }); }
 
-    function startGame() {
+    /* ─── Modale d'options au lancement ─── */
+    function openStartModal() {
       getAudio();
-      const clueSel = document.getElementById('timerClueSelect');
-      const guessSel = document.getElementById('timerGuessSelect');
+      document.getElementById('startModal').classList.add('show');
+    }
+
+    function closeStartModal() {
+      document.getElementById('startModal').classList.remove('show');
+    }
+
+    function confirmStartGame() {
       socket.emit('startGame', {
-        timerClue: clueSel ? Number(clueSel.value) : 0,
-        timerGuess: guessSel ? Number(guessSel.value) : 0,
+        timerClue: Number(document.getElementById('timerClueSelect').value),
+        timerGuess: Number(document.getElementById('timerGuessSelect').value),
       });
+      closeStartModal();
     }
 
     /* ─── Compte à rebours du tour ───
@@ -1246,6 +1267,7 @@
       gameoverShown = false;
       timerDeadline = null;
       setConnBanner(false);
+      closeStartModal();
       document.getElementById('gameScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'flex';
       document.getElementById('gameoverOverlay').classList.remove('show');
@@ -1369,7 +1391,8 @@
       document.getElementById('teamButtons').style.display = (isLobby && !isSpec) ? '' : 'none';
       const canStart = isLobby && !isSpec && state.you && state.you.team && state.you.role;
       document.getElementById('btnStart').style.display = canStart ? 'inline-block' : 'none';
-      document.getElementById('timerConfig').style.display = canStart ? 'block' : 'none';
+      // Quelqu'un d'autre a lancé pendant que la modale d'options était ouverte
+      if (!isLobby) closeStartModal();
       updateTimerDisplay();
 
       // Game over : l'overlay ne s'ouvre qu'à l'ENTRÉE en fin de partie.
