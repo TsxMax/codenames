@@ -132,8 +132,72 @@ function createRoom(roomId) {
     redTotal: startingTeam === 'red' ? 9 : 8,
     blueTotal: startingTeam === 'red' ? 8 : 9,
     winner: null,
+    winReason: null,      // 'words' | 'assassin'
+    loser: null,          // équipe qui a touché l'assassin
+    lastReveal: null,     // { index, type, byTeam, playerName } → feedback client
     log: [],
   };
+}
+
+// Libellés de rôles (affichage uniquement)
+const ROLE_LABEL = { spymaster: '🎯 Indiceur', operative: '🔍 Devineur' };
+const TEAM_LABEL = { red: 'ROUGE', blue: 'BLEUE' };
+
+// Vérifie que la composition des équipes permet de lancer une partie.
+// Retourne null si tout est bon, sinon le message d'erreur.
+function validateTeams(room) {
+  const players = Object.values(room.players);
+  const byTeam = {
+    red: players.filter(p => p.team === 'red'),
+    blue: players.filter(p => p.team === 'blue'),
+  };
+
+  if (byTeam.red.length === 0 || byTeam.blue.length === 0) {
+    return 'Chaque équipe doit avoir au moins 1 joueur.';
+  }
+
+  // En mode classique (2+ par équipe), il faut un indiceur et un devineur
+  for (const team of ['red', 'blue']) {
+    if (byTeam[team].length > 1) {
+      const hasSpy = byTeam[team].some(p => p.role === 'spymaster');
+      const hasOp = byTeam[team].some(p => p.role === 'operative');
+      if (!hasSpy || !hasOp) {
+        const name = team === 'red' ? 'Rouge' : 'Bleue';
+        return `L'équipe ${name} a besoin d'un Indiceur et d'un Devineur (ou 1 seul joueur en mode solo).`;
+      }
+    }
+  }
+  return null;
+}
+
+// Remet le plateau à neuf. `keepTeams` conserve équipes et rôles.
+function resetGame(room, keepTeams) {
+  const { cards, startingTeam } = generateBoard();
+  room.cards = cards;
+  room.startingTeam = startingTeam;
+  room.currentTeam = startingTeam;
+  room.clue = null;
+  room.clueCount = 0;
+  room.guessesUsed = 0;
+  room.guessesMax = 0;
+  room.isUnlimited = false;
+  room.selectedCard = -1;
+  room.redScore = 0;
+  room.blueScore = 0;
+  room.redTotal = startingTeam === 'red' ? 9 : 8;
+  room.blueTotal = startingTeam === 'red' ? 8 : 9;
+  room.winner = null;
+  room.winReason = null;
+  room.loser = null;
+  room.lastReveal = null;
+  room.log = [];
+
+  if (!keepTeams) {
+    for (const p of Object.values(room.players)) {
+      p.team = null;
+      p.role = null;
+    }
+  }
 }
 
 function isPlayerSolo(room, player) {
@@ -165,7 +229,9 @@ function canPlayerSeeBoard(room, player) {
 
 function getRoomState(room, playerId) {
   const player = room.players[playerId];
-  const seeAll = canPlayerSeeBoard(room, player) && room.phase !== 'lobby';
+  // Fin de partie : la grille complète est dévoilée à tout le monde
+  const seeAll = room.phase === 'gameover'
+    || (canPlayerSeeBoard(room, player) && room.phase !== 'lobby');
 
   return {
     id: room.id,
@@ -195,6 +261,9 @@ function getRoomState(room, playerId) {
     blueTotal: room.blueTotal,
     startingTeam: room.startingTeam,
     winner: room.winner,
+    winReason: room.winReason,
+    loser: room.loser,
+    lastReveal: room.lastReveal,
     log: room.log,
     you: player ? { id: player.id, name: player.name, team: player.team, role: player.role, solo: isPlayerSolo(room, player) } : null,
   };
@@ -215,17 +284,15 @@ function addLog(room, msg) {
 }
 
 function checkWin(room) {
-  if (room.redScore >= room.redTotal) {
-    room.phase = 'gameover';
-    room.winner = 'red';
-    addLog(room, '🏆 L\'équipe ROUGE a gagné !');
-    return true;
-  }
-  if (room.blueScore >= room.blueTotal) {
-    room.phase = 'gameover';
-    room.winner = 'blue';
-    addLog(room, '🏆 L\'équipe BLEUE a gagné !');
-    return true;
+  for (const team of ['red', 'blue']) {
+    if (room[`${team}Score`] >= room[`${team}Total`]) {
+      room.phase = 'gameover';
+      room.winner = team;
+      room.winReason = 'words';
+      room.loser = team === 'red' ? 'blue' : 'red';
+      addLog(room, `🏆 L'équipe ${TEAM_LABEL[team]} a trouvé tous ses mots !`);
+      return true;
+    }
   }
   return false;
 }
@@ -239,7 +306,7 @@ function endTurn(room) {
   room.guessesMax = 0;
   room.isUnlimited = false;
   room.selectedCard = -1;
-  addLog(room, `───── Tour ${room.currentTeam === 'red' ? 'ROUGE' : 'BLEU'} ─────`);
+  addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
 }
 
 function cleanupRoom(roomId) {
@@ -332,7 +399,7 @@ io.on('connection', (socket) => {
         p => p.team === team && p.role === 'spymaster' && p.id !== playerId
       );
       if (existing) {
-        socket.emit('error', `Il y a déjà un Maître-Espion ${team === 'red' ? 'rouge' : 'bleu'}.`);
+        socket.emit('error', `Il y a déjà un Indiceur ${team === 'red' ? 'rouge' : 'bleu'}.`);
         return;
       }
     }
@@ -349,7 +416,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    addLog(room, `👤 ${player.name} → ${team === 'red' ? 'ROUGE' : 'BLEU'} ${role === 'spymaster' ? '🕵️ Maître-Espion' : '🔍 Agent'}`);
+    addLog(room, `👤 ${player.name} → ${TEAM_LABEL[team]} ${ROLE_LABEL[role]}`);
     broadcastRoom(room);
   });
 
@@ -358,36 +425,12 @@ io.on('connection', (socket) => {
     const room = rooms[currentRoom];
     if (room.phase !== 'lobby') return;
 
-    const players = Object.values(room.players);
-    const redPlayers = players.filter(p => p.team === 'red');
-    const bluePlayers = players.filter(p => p.team === 'blue');
-
-    if (redPlayers.length === 0 || bluePlayers.length === 0) {
-      socket.emit('error', 'Chaque équipe doit avoir au moins 1 joueur.');
-      return;
-    }
-
-    // En mode classique (2+ par équipe), il faut un spymaster et un operative
-    if (redPlayers.length > 1) {
-      const redSpy = redPlayers.find(p => p.role === 'spymaster');
-      const redOp = redPlayers.find(p => p.role === 'operative');
-      if (!redSpy || !redOp) {
-        socket.emit('error', 'L\'équipe Rouge a besoin d\'un Maître-Espion et d\'un Agent (ou 1 seul joueur en mode solo).');
-        return;
-      }
-    }
-    if (bluePlayers.length > 1) {
-      const blueSpy = bluePlayers.find(p => p.role === 'spymaster');
-      const blueOp = bluePlayers.find(p => p.role === 'operative');
-      if (!blueSpy || !blueOp) {
-        socket.emit('error', 'L\'équipe Bleue a besoin d\'un Maître-Espion et d\'un Agent (ou 1 seul joueur en mode solo).');
-        return;
-      }
-    }
+    const err = validateTeams(room);
+    if (err) { socket.emit('error', err); return; }
 
     room.phase = 'clue';
     addLog(room, `🎮 Partie lancée !`);
-    addLog(room, `───── Tour ${room.currentTeam === 'red' ? 'ROUGE' : 'BLEU'} ─────`);
+    addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
     broadcastRoom(room);
   });
 
@@ -414,12 +457,12 @@ io.on('connection', (socket) => {
     room.clueCount = isInfinity ? '∞' : numCount;
     room.guessesUsed = 0;
     room.isUnlimited = unlimited;
-    // EXACTEMENT le nombre donné par le maître-espion (pas +1)
+    // EXACTEMENT le nombre donné par l'indiceur (pas +1)
     room.guessesMax = unlimited ? 25 : numCount;
     room.selectedCard = -1;
     room.phase = 'guess';
 
-    addLog(room, `🕵️ ${player.name} : « ${word} » → ${room.clueCount}`);
+    addLog(room, `🎯 ${player.name} : « ${word} » → ${room.clueCount}`);
     broadcastRoom(room);
   });
 
@@ -452,8 +495,12 @@ io.on('connection', (socket) => {
     const card = room.cards[index];
     if (card.revealed) return;
 
+    const guessingTeam = room.currentTeam;
+
     card.revealed = true;
     room.selectedCard = -1;
+    // Sert au client pour l'animation, le son et la surbrillance
+    room.lastReveal = { index, type: card.type, byTeam: guessingTeam, playerName: player.name };
 
     const typeLabel = card.type === 'red' ? '🟥 ROUGE' :
                       card.type === 'blue' ? '🟦 BLEU' :
@@ -467,8 +514,10 @@ io.on('connection', (socket) => {
     // ASSASSIN → perte immédiate
     if (card.type === 'assassin') {
       room.phase = 'gameover';
-      room.winner = room.currentTeam === 'red' ? 'blue' : 'red';
-      addLog(room, `💀 ASSASSIN ! L'équipe ${room.currentTeam === 'red' ? 'ROUGE' : 'BLEUE'} perd !`);
+      room.winner = guessingTeam === 'red' ? 'blue' : 'red';
+      room.winReason = 'assassin';
+      room.loser = guessingTeam;
+      addLog(room, `💀 ASSASSIN ! L'équipe ${TEAM_LABEL[guessingTeam]} perd immédiatement.`);
       broadcastRoom(room);
       return;
     }
@@ -476,7 +525,7 @@ io.on('connection', (socket) => {
     if (checkWin(room)) { broadcastRoom(room); return; }
 
     // Bonne réponse
-    if (card.type === room.currentTeam) {
+    if (card.type === guessingTeam) {
       room.guessesUsed++;
       if (!room.isUnlimited && room.guessesUsed >= room.guessesMax) {
         addLog(room, `⏰ ${room.guessesMax} essai(s) utilisés. Fin du tour.`);
@@ -541,33 +590,34 @@ io.on('connection', (socket) => {
     socket.emit('leftRoom');
   });
 
+  // Rejouer en conservant les équipes : relance directement si la composition
+  // est toujours valide, sinon retombe sur le salon.
   socket.on('newGame', () => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
-    const { cards, startingTeam } = generateBoard();
-    room.cards = cards;
-    room.startingTeam = startingTeam;
-    room.currentTeam = startingTeam;
-    room.phase = 'lobby';
-    room.clue = null;
-    room.clueCount = 0;
-    room.guessesUsed = 0;
-    room.guessesMax = 0;
-    room.isUnlimited = false;
-    room.selectedCard = -1;
-    room.redScore = 0;
-    room.blueScore = 0;
-    room.redTotal = startingTeam === 'red' ? 9 : 8;
-    room.blueTotal = startingTeam === 'red' ? 8 : 9;
-    room.winner = null;
-    room.log = [];
 
-    for (const p of Object.values(room.players)) {
-      p.team = null;
-      p.role = null;
+    resetGame(room, true);
+    const err = validateTeams(room);
+
+    if (err) {
+      room.phase = 'lobby';
+      addLog(room, '🔄 Nouvelle partie — choisissez vos équipes.');
+    } else {
+      room.phase = 'clue';
+      addLog(room, '🔄 Nouvelle partie — mêmes équipes !');
+      addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
     }
+    broadcastRoom(room);
+  });
 
-    addLog(room, '🔄 Nouvelle partie !');
+  // Nouvelle partie en repartant de zéro : tout le monde revient au salon
+  socket.on('backToLobby', () => {
+    if (!currentRoom || !rooms[currentRoom]) return;
+    const room = rooms[currentRoom];
+
+    resetGame(room, false);
+    room.phase = 'lobby';
+    addLog(room, '🔄 Retour au salon — choisissez vos équipes.');
     broadcastRoom(room);
   });
 

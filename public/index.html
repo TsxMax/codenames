@@ -2,7 +2,9 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>MemoryGuess</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
@@ -21,11 +23,16 @@
       --text: #eee;
     }
 
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
     }
 
     /* ─── Écran de connexion ─── */
@@ -34,21 +41,24 @@
       justify-content: center;
       align-items: center;
       min-height: 100vh;
+      min-height: 100dvh;
       flex-direction: column;
       gap: 20px;
+      padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
     }
 
     #joinScreen h1 {
-      font-size: 3em;
+      font-size: clamp(1.9em, 8vw, 3em);
+      text-align: center;
       text-transform: uppercase;
-      letter-spacing: 8px;
+      letter-spacing: clamp(3px, 1.5vw, 8px);
       background: linear-gradient(135deg, var(--red), var(--blue));
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
 
-    #joinScreen .subtitle { color: #888; font-size: 1.1em; margin-bottom: 20px; }
+    #joinScreen .subtitle { color: #888; font-size: 1.1em; margin-bottom: 20px; text-align: center; }
 
     .join-box {
       background: var(--bg2);
@@ -57,7 +67,8 @@
       display: flex;
       flex-direction: column;
       gap: 16px;
-      min-width: 350px;
+      width: 100%;
+      max-width: 380px;
       box-shadow: 0 10px 40px rgba(0,0,0,0.4);
     }
 
@@ -86,9 +97,14 @@
       transition: all 0.2s;
       text-transform: uppercase;
       letter-spacing: 1px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      line-height: 1.25;
     }
 
-    .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    @media (hover: hover) and (pointer: fine) {
+      .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    }
     .btn:active { transform: translateY(0); }
     .btn-primary { background: linear-gradient(135deg, var(--blue), var(--blue-dark)); color: white; }
     .btn-red { background: linear-gradient(135deg, var(--red), var(--red-dark)); color: white; }
@@ -106,6 +122,7 @@
       display: grid;
       grid-template-columns: 240px 1fr 280px;
       min-height: 100vh;
+      min-height: 100dvh;
     }
 
     /* Sidebar gauche */
@@ -276,8 +293,14 @@
       text-align: center;
       padding: 6px;
       word-break: break-word;
+      overflow-wrap: anywhere;
+      hyphens: auto;
+      line-height: 1.15;
       border: 3px solid transparent;
       user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
 
     /* Carte cachée (vue agent) */
@@ -289,11 +312,15 @@
 
     .card.hidden.clickable { cursor: pointer; }
 
-    .card.hidden.clickable:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-      border-color: #f1c40f;
+    @media (hover: hover) and (pointer: fine) {
+      .card.hidden.clickable:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        border-color: #f1c40f;
+      }
     }
+
+    .card.hidden.clickable:active { transform: scale(0.96); border-color: #f1c40f; }
 
     /* Carte sélectionnée (pas encore confirmée) */
     .card.selected {
@@ -479,19 +506,25 @@
       z-index: 100;
       justify-content: center;
       align-items: center;
+      padding: 20px;
+      overflow-y: auto;
     }
 
     .gameover-overlay.show { display: flex; }
 
     .gameover-box {
       background: var(--bg2);
-      padding: 50px 60px;
+      padding: clamp(28px, 6vw, 50px) clamp(22px, 6vw, 60px);
       border-radius: 20px;
       text-align: center;
+      width: 100%;
+      max-width: 460px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     }
 
-    .gameover-box h2 { font-size: 2.2em; margin-bottom: 10px; }
+    .gameover-box .btn { margin: 6px; }
+
+    .gameover-box h2 { font-size: clamp(1.5em, 6vw, 2.2em); margin-bottom: 10px; }
     .gameover-box h2.red { color: var(--red); }
     .gameover-box h2.blue { color: var(--blue); }
     .gameover-box p { margin-bottom: 24px; color: #aaa; font-size: 1.1em; }
@@ -499,8 +532,10 @@
     /* Toast */
     .toast {
       position: fixed;
-      top: 20px;
-      right: 20px;
+      top: calc(12px + env(safe-area-inset-top));
+      right: 12px;
+      left: auto;
+      max-width: min(420px, calc(100vw - 24px));
       background: var(--red);
       color: white;
       padding: 14px 24px;
@@ -537,17 +572,237 @@
     .your-role-badge.red { background: var(--red); color: white; }
     .your-role-badge.blue { background: var(--blue); color: white; }
 
-    @media (max-width: 1100px) {
-      .game-layout { grid-template-columns: 1fr; }
-      .sidebar-left, .sidebar-right { border: none; border-bottom: 1px solid #333; }
-      .sidebar-left { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
-      .team-section, .unassigned-section { min-width: 200px; }
+    .actions:empty { display: none; }
+
+    /* ─── Bouton son ─── */
+    .btn-icon {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: var(--text);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.95em;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 0.2s;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-icon:active { background: rgba(255,255,255,0.18); }
+    .btn-icon.off { opacity: 0.45; }
+
+    /* ─── Feedback visuel des révélations ─── */
+    @keyframes cardFlip {
+      0%   { transform: perspective(400px) rotateY(0deg) scale(1); }
+      45%  { transform: perspective(400px) rotateY(88deg) scale(1.1); }
+      100% { transform: perspective(400px) rotateY(0deg) scale(1); }
     }
 
-    @media (max-width: 600px) {
-      .board { gap: 5px; }
-      .card { font-size: 0.6em; aspect-ratio: 1.4; border-radius: 6px; }
-      .join-box { min-width: 280px; padding: 24px; }
+    .card.flip-in { animation: cardFlip 0.45s ease-in-out; z-index: 5; }
+
+    /* Dernier mot révélé : reste mis en avant jusqu'au suivant */
+    .card.last-revealed {
+      box-shadow: 0 0 0 3px #f1c40f, 0 0 24px rgba(241, 196, 15, 0.5);
+      z-index: 4;
+    }
+
+    @keyframes boardShake {
+      0%, 100% { transform: translateX(0); }
+      15% { transform: translateX(-9px); }
+      30% { transform: translateX(8px); }
+      45% { transform: translateX(-6px); }
+      60% { transform: translateX(5px); }
+      80% { transform: translateX(-3px); }
+    }
+
+    .board.shake { animation: boardShake 0.55s ease-in-out; }
+
+    /* Cartes jamais retournées, dévoilées en fin de partie */
+    .card.postgame { opacity: 0.6; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .card.flip-in, .board.shake { animation: none; }
+      .card, .btn { transition: none; }
+    }
+
+    /* ─── Écran de fin enrichi ─── */
+    .gameover-emoji { font-size: 3em; line-height: 1; margin-bottom: 6px; }
+
+    .gameover-scores {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin: 4px 0 18px;
+    }
+
+    .gameover-score {
+      flex: 1;
+      max-width: 150px;
+      padding: 10px 8px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.25);
+    }
+
+    .gameover-score .lbl { display: block; font-size: 0.8em; color: #aaa; margin-bottom: 2px; }
+    .gameover-score .val { display: block; font-size: 1.5em; font-weight: bold; }
+    .gameover-score.red  { border-left: 4px solid var(--red); }
+    .gameover-score.red .val  { color: var(--red); }
+    .gameover-score.blue { border-left: 4px solid var(--blue); }
+    .gameover-score.blue .val { color: var(--blue); }
+    .gameover-score.winner { background: rgba(255,255,255,0.12); }
+
+    .gameover-hint { font-size: 0.8em !important; color: #777 !important; margin-bottom: 16px !important; }
+
+    .gameover-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+    /* ════════════ RESPONSIVE ════════════ */
+
+    /* ─── Tablette & mobile : passage en colonne ─── */
+    @media (max-width: 1100px) {
+      .game-layout {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-left  { order: 1; border-right: none; border-bottom: 1px solid #333; overflow-y: visible; padding: 12px; }
+      .main-area     { order: 2; }
+      .sidebar-right { order: 3; border-left: none; border-top: 1px solid #333; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); }
+
+      /* Panneau équipes compact : Rouge / Bleue côte à côte */
+      .sidebar-left > div {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        align-items: start;
+        max-width: 860px;
+        margin: 0 auto;
+      }
+      .sidebar-left > div > *:not(.team-section) { grid-column: 1 / -1; }
+      .sidebar-left h3 { display: none; }
+      .sidebar-left #yourInfo { margin-bottom: 0 !important; }
+      .team-section, .unassigned-section { margin-bottom: 0; }
+
+      .team-buttons { grid-column: 1 / -1; margin-top: 4px; }
+
+      .sidebar-right h3 { margin-bottom: 8px; }
+      .log-area { max-height: 26vh; }
+    }
+
+    /* ─── Mobile ─── */
+    @media (max-width: 700px) {
+      .main-area { padding: 12px 8px 8px; }
+
+      .game-header { margin-bottom: 8px; }
+      .room-id { font-size: 0.8em; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+
+      .turn-indicator {
+        padding: 8px 14px;
+        font-size: 0.8em;
+        letter-spacing: 0.5px;
+        max-width: 100%;
+      }
+
+      .clue-banner { margin: 10px 0; padding: 10px 14px; }
+      .clue-word { font-size: 1.2em; word-break: break-word; }
+      .clue-meta { font-size: 0.8em; }
+
+      /* Grille 5×5 optimisée petit écran */
+      .board { gap: 5px; margin-bottom: 12px; }
+      .card {
+        aspect-ratio: 1.25;
+        font-size: clamp(6px, 2.2vw, 12px);
+        letter-spacing: 0;
+        padding: 2px;
+        border-width: 2px;
+        border-radius: 6px;
+      }
+      .card.spy-red, .card.spy-blue, .card.spy-assassin { border-width: 3px; }
+      .card.selected { transform: translateY(-2px) scale(1.04); }
+
+      /* Barre d'actions collante en bas */
+      .actions {
+        position: sticky;
+        bottom: 0;
+        z-index: 40;
+        width: 100%;
+        gap: 8px;
+        margin-bottom: 0;
+        padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
+        background: rgba(26, 26, 46, 0.95);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-top: 1px solid #2c2c46;
+      }
+
+      /* Formulaire d'indice : pleine largeur, pas de zoom iOS */
+      .clue-form { width: 100%; gap: 6px; }
+      .clue-form input[type="text"] { flex: 1 1 140px; width: auto; min-width: 0; }
+      .clue-form input, .clue-form select { font-size: 16px; padding: 10px 12px; min-height: 44px; }
+      .clue-form select { flex: 0 0 auto; }
+      .clue-form .btn { flex: 1 1 100%; min-height: 44px; }
+
+      .confirm-zone { width: 100%; gap: 8px; }
+      .confirm-buttons { width: 100%; gap: 8px; }
+      .confirm-buttons .btn { flex: 1; min-height: 46px; }
+      .selected-word-display { font-size: 1.05em; text-align: center; word-break: break-word; }
+
+      .btn { min-height: 42px; }
+      .btn-small { min-height: 38px; padding: 8px 12px; }
+
+      /* Équipes */
+      .team-section { padding: 8px 10px; }
+      .team-header { font-size: 0.85em; }
+      .team-header .score { font-size: 1.15em; }
+      .player-item { font-size: 0.78em; padding: 3px 6px; }
+      .player-list { max-height: 96px; overflow-y: auto; }
+      .unassigned-section { padding: 8px 10px; }
+
+      .team-buttons {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .team-buttons > div { grid-column: 1 / -1; margin: 4px 0 0 !important; }
+      .team-buttons .btn { font-size: 0.7em; padding: 10px 6px; min-height: 44px; letter-spacing: 0; }
+
+      .your-role-badge { font-size: 0.75em; padding: 4px 10px; }
+
+      /* Historique */
+      .sidebar-right { padding: 10px 10px calc(12px + env(safe-area-inset-bottom)); }
+      .log-area { max-height: 130px; font-size: 0.75em; }
+
+      .join-box { padding: 24px 20px; }
+      .join-box input { font-size: 16px; min-height: 46px; }
+      .join-box .btn { min-height: 48px; }
+
+      .toast { left: 10px; right: 10px; max-width: none; padding: 12px 16px; font-size: 0.9em; }
+
+      /* Écran de fin */
+      .gameover-emoji { font-size: 2.4em; }
+      .gameover-scores { gap: 8px; margin-bottom: 14px; }
+      .gameover-score { padding: 8px 6px; }
+      .gameover-score .val { font-size: 1.25em; }
+      .gameover-actions .btn { flex: 1 1 100%; min-height: 46px; }
+      .gameover-box .btn { margin: 0; }
+      .gameover-box p { font-size: 0.95em; margin-bottom: 16px; }
+    }
+
+    /* ─── Petits mobiles ─── */
+    @media (max-width: 400px) {
+      .board { gap: 3px; }
+      .card { aspect-ratio: 1.15; border-radius: 5px; font-size: clamp(5.5px, 2.35vw, 10px); }
+      .main-area { padding: 10px 6px 6px; }
+      .sidebar-left > div { gap: 8px; }
+      .team-buttons .btn { font-size: 0.65em; }
+      .log-area { max-height: 110px; }
+    }
+
+    /* ─── Mobile en paysage : priorité à la grille ─── */
+    @media (max-height: 560px) and (orientation: landscape) and (max-width: 1100px) {
+      .board { max-width: min(100%, 78vh * 1.6); }
+      .card { aspect-ratio: 1.6; font-size: clamp(6px, 1.15vh, 12px); }
+      .player-list { max-height: 60px; }
+      .log-area { max-height: 90px; }
     }
   </style>
 </head>
@@ -601,13 +856,13 @@
 
           <div class="team-buttons" id="teamButtons">
             <div style="text-align:center; color:#aaa; font-size:0.75em; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Mode Solo (1 joueur/équipe)</div>
-            <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">🎯 Solo Rouge</button>
-            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','spymaster')">🎯 Solo Bleu</button>
+            <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">👤 Solo Rouge</button>
+            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','spymaster')">👤 Solo Bleu</button>
             <div style="text-align:center; color:#aaa; font-size:0.75em; text-transform:uppercase; letter-spacing:1px; margin:8px 0 4px;">Mode Classique (2+ /équipe)</div>
-            <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">🕵️ Maître-Espion Rouge</button>
-            <button class="btn btn-red btn-small" onclick="chooseTeam('red','operative')">🔍 Agent Rouge</button>
-            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','spymaster')">🕵️ Maître-Espion Bleu</button>
-            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','operative')">🔍 Agent Bleu</button>
+            <button class="btn btn-red btn-small" onclick="chooseTeam('red','spymaster')">🎯 Indiceur Rouge</button>
+            <button class="btn btn-red btn-small" onclick="chooseTeam('red','operative')">🔍 Devineur Rouge</button>
+            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','spymaster')">🎯 Indiceur Bleu</button>
+            <button class="btn btn-blue btn-small" onclick="chooseTeam('blue','operative')">🔍 Devineur Bleu</button>
           </div>
 
           <div style="margin-top:12px; text-align:center;">
@@ -643,16 +898,109 @@
   <!-- Game Over -->
   <div class="gameover-overlay" id="gameoverOverlay">
     <div class="gameover-box">
+      <div class="gameover-emoji" id="gameoverEmoji">🏆</div>
       <h2 id="gameoverTitle"></h2>
       <p id="gameoverMsg"></p>
-      <button class="btn btn-primary btn-large" onclick="newGame()">🔄 Nouvelle partie</button>
-      <button class="btn btn-neutral" style="margin-left:10px;" onclick="closeOverlay()">Fermer</button>
+
+      <div class="gameover-scores">
+        <div class="gameover-score red" id="goRedBox">
+          <span class="lbl">🟥 Rouge</span>
+          <span class="val" id="goRedScore">0/0</span>
+        </div>
+        <div class="gameover-score blue" id="goBlueBox">
+          <span class="lbl">🟦 Bleue</span>
+          <span class="val" id="goBlueScore">0/0</span>
+        </div>
+      </div>
+
+      <p class="gameover-hint">La grille complète est dévoilée derrière cette fenêtre.</p>
+
+      <div class="gameover-actions">
+        <button class="btn btn-primary btn-large" onclick="newGame()">🔄 Rejouer (mêmes équipes)</button>
+        <button class="btn btn-neutral btn-small" onclick="backToLobby()">👥 Changer les équipes</button>
+        <button class="btn btn-neutral btn-small" onclick="closeOverlay()">👁️ Voir la grille</button>
+      </div>
     </div>
   </div>
 
   <script>
     const socket = io();
     let state = null;
+
+    const TEAM_FR = { red: 'ROUGE', blue: 'BLEUE' };
+    const ROLE_FR = { spymaster: '🎯 Indiceur', operative: '🔍 Devineur' };
+
+    /* ═══════════════ Sons (WebAudio, aucun fichier externe) ═══════════════ */
+    let audioCtx = null;
+    let soundOn = localStorage.getItem('mg_sound') !== 'off';
+
+    function getAudio() {
+      if (!soundOn) return null;
+      try {
+        if (!audioCtx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          audioCtx = new AC();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      } catch (e) { return null; }
+    }
+
+    // Une note : fréquence (Hz), départ et durée (s)
+    function tone(freq, start, dur, type = 'sine', vol = 0.16) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const t0 = ctx.currentTime + start;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    }
+
+    function melody(notes, type, vol) {
+      for (const [freq, start, dur] of notes) tone(freq, start, dur, type, vol);
+    }
+
+    function buzz(pattern) {
+      if (!soundOn) return;
+      if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} }
+    }
+
+    const SFX = {
+      select:   () => tone(520, 0, 0.06, 'square', 0.07),
+      clue:     () => melody([[523, 0, 0.1], [784, 0.08, 0.16]], 'sine', 0.12),
+      good:     () => { melody([[659, 0, 0.11], [988, 0.09, 0.22]], 'triangle', 0.17); buzz(35); },
+      opponent: () => { melody([[392, 0, 0.14], [262, 0.12, 0.28]], 'sawtooth', 0.13); buzz([45, 55, 45]); },
+      neutral:  () => { melody([[330, 0, 0.22]], 'sine', 0.12); buzz(60); },
+      assassin: () => {
+        melody([[196, 0, 0.5], [138, 0.12, 0.6], [92, 0.26, 0.85]], 'sawtooth', 0.2);
+        buzz([90, 60, 90, 60, 220]);
+      },
+      win:      () => melody([[523, 0, 0.14], [659, 0.13, 0.14], [784, 0.26, 0.14], [1047, 0.39, 0.5]], 'triangle', 0.18),
+      lose:     () => melody([[440, 0, 0.2], [349, 0.18, 0.22], [262, 0.38, 0.55]], 'triangle', 0.16),
+    };
+
+    function toggleSound() {
+      soundOn = !soundOn;
+      localStorage.setItem('mg_sound', soundOn ? 'on' : 'off');
+      if (soundOn) SFX.select();
+      render();
+    }
+
+    /* Suivi des révélations pour n'animer que les nouvelles cartes */
+    let seenRevealed = new Set();
+    let boardReady = false;   // false = premier rendu / nouvelle grille → pas d'animation
+    let prevPhase = null;
+    let flipQueue = [];       // index des cartes à animer au prochain renderBoard
+    let shakeBoard = false;
 
     // ─── Auto-reconnexion au chargement ───
     (function tryReconnect() {
@@ -684,9 +1032,10 @@
       socket.emit('joinRoom', { roomId: room, playerName: name, sessionId: savedSession || undefined });
     }
 
-    function chooseTeam(team, role) { socket.emit('chooseTeam', { team, role }); }
-    function startGame() { socket.emit('startGame'); }
-    function newGame() { socket.emit('newGame'); closeOverlay(); }
+    function chooseTeam(team, role) { getAudio(); SFX.select(); socket.emit('chooseTeam', { team, role }); }
+    function startGame() { getAudio(); socket.emit('startGame'); }
+    function newGame() { getAudio(); socket.emit('newGame'); closeOverlay(); }
+    function backToLobby() { socket.emit('backToLobby'); closeOverlay(); }
     function closeOverlay() { document.getElementById('gameoverOverlay').classList.remove('show'); }
 
     function leaveRoom() {
@@ -698,6 +1047,9 @@
       localStorage.removeItem('cn_sessionId');
       localStorage.removeItem('cn_roomId');
       state = null;
+      seenRevealed = new Set();
+      boardReady = false;
+      prevPhase = null;
       document.getElementById('gameScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'flex';
       document.getElementById('gameoverOverlay').classList.remove('show');
@@ -723,6 +1075,8 @@
 
     // ─── Card selection ───
     function selectCard(index) {
+      getAudio();
+      SFX.select();
       socket.emit('selectCard', { index });
     }
 
@@ -736,11 +1090,62 @@
 
     // ─── State reception ───
     socket.on('gameState', (newState) => {
+      const prev = state;
       state = newState;
+      processFeedback(prev);
       document.getElementById('joinScreen').style.display = 'none';
       document.getElementById('gameScreen').style.display = 'block';
       render();
     });
+
+    /* Compare l'ancien et le nouvel état pour déclencher animations et sons.
+       Le premier rendu (ou une nouvelle grille) n'anime rien : on se contente
+       d'enregistrer les cartes déjà retournées. */
+    function processFeedback(prev) {
+      flipQueue = [];
+      shakeBoard = false;
+
+      const revealedNow = [];
+      for (let i = 0; i < state.cards.length; i++) {
+        if (state.cards[i].revealed) revealedNow.push(i);
+      }
+
+      // Nouvelle grille (moins de cartes retournées qu'avant) → on repart de zéro
+      if (!prev || revealedNow.length < seenRevealed.size) {
+        seenRevealed = new Set(revealedNow);
+        boardReady = true;
+        prevPhase = state.phase;
+        return;
+      }
+
+      const fresh = revealedNow.filter(i => !seenRevealed.has(i));
+      fresh.forEach(i => seenRevealed.add(i));
+
+      if (boardReady && fresh.length) {
+        flipQueue = fresh;
+
+        const rev = state.lastReveal;
+        if (rev && fresh.includes(rev.index)) {
+          const mine = state.you && state.you.team === rev.byTeam;
+          if (rev.type === 'assassin') { SFX.assassin(); shakeBoard = true; }
+          else if (rev.type === 'neutral') SFX.neutral();
+          else if (rev.type === rev.byTeam) { mine ? SFX.good() : SFX.neutral(); }
+          else SFX.opponent();
+        }
+      }
+
+      // Nouvel indice reçu
+      if (boardReady && prevPhase === 'clue' && state.phase === 'guess') SFX.clue();
+
+      // Fin de partie : fanfare ou son de défaite
+      if (boardReady && prevPhase !== 'gameover' && state.phase === 'gameover') {
+        const won = state.you && state.you.team && state.you.team === state.winner;
+        setTimeout(() => (won || !state.you?.team ? SFX.win() : SFX.lose()), 550);
+      }
+
+      boardReady = true;
+      prevPhase = state.phase;
+    }
 
     socket.on('error', (msg) => { showToast(msg); });
 
@@ -748,7 +1153,10 @@
     function render() {
       if (!state) return;
 
-      document.getElementById('roomIdDisplay').innerHTML = `<span>Salle : ${state.id}</span><button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>`;
+      document.getElementById('roomIdDisplay').innerHTML =
+        `<span>Salle : ${state.id}</span>` +
+        `<button class="btn-icon ${soundOn ? '' : 'off'}" onclick="toggleSound()" title="Activer / couper le son">${soundOn ? '🔊' : '🔇'}</button>` +
+        `<button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>`;
       document.getElementById('redScoreDisplay').textContent = `${state.redScore}/${state.redTotal}`;
       document.getElementById('blueScoreDisplay').textContent = `${state.blueScore}/${state.blueTotal}`;
       document.getElementById('redStartBadge').style.display = state.startingTeam === 'red' ? 'inline' : 'none';
@@ -763,20 +1171,45 @@
 
       // Lobby controls
       const isLobby = state.phase === 'lobby';
-      document.getElementById('teamButtons').style.display = isLobby ? 'flex' : 'none';
+      document.getElementById('teamButtons').style.display = isLobby ? '' : 'none';
       const canStart = isLobby && state.you && state.you.team && state.you.role;
       document.getElementById('btnStart').style.display = canStart ? 'inline-block' : 'none';
 
       // Game over
       if (state.phase === 'gameover' && state.winner) {
-        const overlay = document.getElementById('gameoverOverlay');
-        const title = document.getElementById('gameoverTitle');
-        const msg = document.getElementById('gameoverMsg');
-        title.className = state.winner;
-        title.textContent = `🏆 Victoire ${state.winner === 'red' ? 'ROUGE' : 'BLEUE'} !`;
-        msg.textContent = 'Félicitations à l\'équipe gagnante !';
-        overlay.classList.add('show');
+        renderGameOver();
       }
+    }
+
+    function renderGameOver() {
+      const overlay = document.getElementById('gameoverOverlay');
+      const winner = state.winner;
+      const youWon = state.you && state.you.team && state.you.team === winner;
+
+      const title = document.getElementById('gameoverTitle');
+      title.className = winner;
+      title.textContent = `Victoire ${TEAM_FR[winner]} !`;
+
+      document.getElementById('gameoverEmoji').textContent =
+        state.winReason === 'assassin' ? '💀' : (youWon ? '🎉' : '🏆');
+
+      let msg;
+      if (state.winReason === 'assassin') {
+        msg = `L'équipe ${TEAM_FR[state.loser]} a retourné l'ASSASSIN — défaite immédiate.`;
+      } else {
+        msg = `L'équipe ${TEAM_FR[winner]} a trouvé ses ${winner === 'red' ? state.redTotal : state.blueTotal} mots.`;
+      }
+      if (state.you && state.you.team) {
+        msg += youWon ? ' 🎉 Bien joué !' : ' Ce sera pour la prochaine fois.';
+      }
+      document.getElementById('gameoverMsg').textContent = msg;
+
+      document.getElementById('goRedScore').textContent = `${state.redScore}/${state.redTotal}`;
+      document.getElementById('goBlueScore').textContent = `${state.blueScore}/${state.blueTotal}`;
+      document.getElementById('goRedBox').classList.toggle('winner', winner === 'red');
+      document.getElementById('goBlueBox').classList.toggle('winner', winner === 'blue');
+
+      overlay.classList.add('show');
     }
 
     function renderPlayers() {
@@ -789,7 +1222,7 @@
         const li = document.createElement('li');
         li.className = 'player-item';
         const isYou = p.id === state.you?.id;
-        const roleName = p.role === 'spymaster' ? '🕵️ Maître-Espion' : p.role === 'operative' ? '🔍 Agent' : '';
+        const roleName = ROLE_FR[p.role] || '';
         li.innerHTML = `${isYou ? '<b>' : ''}${p.name}${isYou ? ' (toi)</b>' : ''} <span class="role-badge">${roleName}</span>`;
         if (p.team === 'red') redList.appendChild(li);
         else if (p.team === 'blue') blueList.appendChild(li);
@@ -806,7 +1239,9 @@
         return;
       }
       const teamLabel = state.you.team === 'red' ? 'Rouge' : 'Bleue';
-      const roleLabel = state.you.role === 'spymaster' ? 'Maître-Espion' : 'Agent';
+      const roleLabel = state.you.solo
+        ? 'Solo'
+        : (state.you.role === 'spymaster' ? 'Indiceur' : 'Devineur');
       div.innerHTML = `<span class="your-role-badge ${state.you.team}">${teamLabel} • ${roleLabel}</span>`;
     }
 
@@ -826,10 +1261,10 @@
         return;
       }
 
-      const teamName = state.currentTeam === 'red' ? 'ROUGE' : 'BLEUE';
+      const teamName = TEAM_FR[state.currentTeam];
 
       if (state.phase === 'clue') {
-        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🕵️ ${teamName} — Indice du Maître-Espion</span>`;
+        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🎯 ${teamName} — Indice en cours</span>`;
         banner.classList.remove('show');
       } else if (state.phase === 'guess') {
         const remaining = state.isUnlimited ? '∞' : (state.guessesMax - state.guessesUsed);
@@ -849,9 +1284,12 @@
       const isOp = state.you && state.you.role === 'operative';
       const isMyTurn = state.you && state.you.team === state.currentTeam;
       const isSpy = state.you && state.you.role === 'spymaster';
-      const seesColors = isSpy || isSolo;
+      const isOver = state.phase === 'gameover';
+      // En fin de partie la grille est dévoilée à tout le monde
+      const seesColors = isSpy || isSolo || isOver;
       // Solo player can click during guess phase; operatives too
       const canClick = (isOp || isSolo) && isMyTurn && state.phase === 'guess';
+      const lastIndex = state.lastReveal ? state.lastReveal.index : -1;
 
       for (let i = 0; i < state.cards.length; i++) {
         const card = state.cards[i];
@@ -861,8 +1299,9 @@
         if (card.revealed) {
           div.classList.add(card.type, 'revealed');
         } else if (seesColors) {
-          // Spymaster or solo: show color hints
+          // Indiceur, solo, ou fin de partie : couleurs visibles
           div.classList.add('hidden', `spy-${card.type}`);
+          if (isOver) div.classList.add('postgame');
           if (canClick) {
             div.classList.add('clickable');
             div.addEventListener('click', () => selectCard(i));
@@ -880,9 +1319,28 @@
           div.classList.add('selected');
         }
 
+        // Dernier mot retourné : reste mis en avant
+        if (i === lastIndex && card.revealed && !isOver) {
+          div.classList.add('last-revealed');
+        }
+
+        // Animation de retournement pour les cartes tout juste révélées
+        if (flipQueue.includes(i)) {
+          div.classList.add('flip-in');
+          div.addEventListener('animationend', () => div.classList.remove('flip-in'), { once: true });
+        }
+
         div.textContent = card.word;
         board.appendChild(div);
       }
+
+      if (shakeBoard) {
+        board.classList.add('shake');
+        board.addEventListener('animationend', () => board.classList.remove('shake'), { once: true });
+      }
+
+      flipQueue = [];
+      shakeBoard = false;
     }
 
     function renderActions() {
@@ -942,7 +1400,7 @@
         } else if (!isMyTurn) {
           div.innerHTML = '<span class="waiting-msg">⏳ L\'équipe adverse donne son indice...</span>';
         } else if (isOp && isMyTurn) {
-          div.innerHTML = '<span class="waiting-msg">⏳ Ton Maître-Espion réfléchit à un indice...</span>';
+          div.innerHTML = '<span class="waiting-msg">⏳ Ton Indiceur réfléchit à un indice...</span>';
         }
       }
 
@@ -972,7 +1430,7 @@
           }
         } else if (isSpy && !isSolo && isMyTurn) {
           const selectedInfo = state.selectedCard >= 0 ? ` — Carte sélectionnée : « ${state.cards[state.selectedCard].word} »` : '';
-          div.innerHTML = `<span class="waiting-msg">🔍 Les agents devinent...${selectedInfo}</span>`;
+          div.innerHTML = `<span class="waiting-msg">🔍 Tes Devineurs cherchent...${selectedInfo}</span>`;
         } else if (!isMyTurn) {
           div.innerHTML = '<span class="waiting-msg">⏳ L\'équipe adverse devine...</span>';
         }
@@ -980,7 +1438,10 @@
 
       // ── Game Over ──
       if (state.phase === 'gameover') {
-        div.innerHTML = `<button class="btn btn-primary btn-large" onclick="newGame()">🔄 Nouvelle partie</button>`;
+        div.innerHTML = `
+          <button class="btn btn-primary" onclick="newGame()">🔄 Rejouer</button>
+          <button class="btn btn-neutral btn-small" onclick="backToLobby()">👥 Changer les équipes</button>
+        `;
       }
     }
 
