@@ -248,6 +248,61 @@
     .turn-indicator.red { background: var(--red); color: white; }
     .turn-indicator.blue { background: var(--blue); color: white; }
 
+    /* ─── Timer de tour ─── */
+    .timer-config-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .timer-config-row label {
+      font-size: 0.72em;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      white-space: nowrap;
+    }
+
+    .timer-select {
+      padding: 8px 10px;
+      border: 2px solid #444;
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 16px;
+      cursor: pointer;
+      min-width: 130px;
+    }
+
+    .timer-display {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 4px 16px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.08);
+      font-weight: bold;
+      font-size: 1.05em;
+      font-variant-numeric: tabular-nums;
+      color: #ccc;
+    }
+
+    .timer-display.low {
+      background: rgba(231, 76, 60, 0.2);
+      color: var(--red);
+      animation: timerPulse 1s infinite;
+    }
+
+    @keyframes timerPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .timer-display.low { animation: none; }
+    }
+
     .clue-banner {
       margin: 12px 0;
       padding: 12px 24px;
@@ -626,12 +681,6 @@
 
     .card.flip-in { animation: cardFlip 0.45s ease-in-out; z-index: 5; }
 
-    /* Dernier mot révélé : reste mis en avant jusqu'au suivant */
-    .card.last-revealed {
-      box-shadow: 0 0 0 3px #f1c40f, 0 0 24px rgba(241, 196, 15, 0.5);
-      z-index: 4;
-    }
-
     @keyframes boardShake {
       0%, 100% { transform: translateX(0); }
       15% { transform: translateX(-9px); }
@@ -783,8 +832,10 @@
       .player-list { max-height: 96px; overflow-y: auto; }
       .unassigned-section { padding: 8px 10px; }
 
+      /* PAS de !important ici : il écrasait le style.display='none' posé par
+         le JS en cours de partie, les boutons restaient visibles sur mobile */
       .team-buttons {
-        display: grid !important;
+        display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
@@ -899,6 +950,30 @@
           </div>
 
           <div style="margin-top:12px; text-align:center;">
+            <div id="timerConfig" style="display:none; margin-bottom:8px;">
+              <div class="timer-config-row">
+                <label>🎯 Timer Indiceur</label>
+                <select id="timerClueSelect" class="timer-select">
+                  <option value="0" selected>Sans timer</option>
+                  <option value="30">30 secondes</option>
+                  <option value="60">60 secondes</option>
+                  <option value="90">90 secondes</option>
+                  <option value="120">2 minutes</option>
+                  <option value="180">3 minutes</option>
+                </select>
+              </div>
+              <div class="timer-config-row">
+                <label>🔍 Timer Devineurs</label>
+                <select id="timerGuessSelect" class="timer-select">
+                  <option value="0" selected>Sans timer</option>
+                  <option value="30">30 secondes</option>
+                  <option value="60">60 secondes</option>
+                  <option value="90">90 secondes</option>
+                  <option value="120">2 minutes</option>
+                  <option value="180">3 minutes</option>
+                </select>
+              </div>
+            </div>
             <button class="btn btn-success btn-small" id="btnStart" style="display:none;" onclick="startGame()">🎮 Lancer la partie</button>
           </div>
         </div>
@@ -913,6 +988,7 @@
             <button class="btn-leave" onclick="leaveRoom()">🚪 Quitter</button>
           </div>
           <div id="turnInfo"></div>
+          <div class="timer-display" id="timerDisplay" style="display:none;"></div>
           <div class="clue-banner" id="clueBanner">
             <div class="clue-word" id="clueWord"></div>
             <div class="clue-meta" id="clueMeta"></div>
@@ -1118,7 +1194,36 @@
     }
 
     function chooseTeam(team, role) { getAudio(); SFX.select(); socket.emit('chooseTeam', { team, role }); }
-    function startGame() { getAudio(); socket.emit('startGame'); }
+
+    function startGame() {
+      getAudio();
+      const clueSel = document.getElementById('timerClueSelect');
+      const guessSel = document.getElementById('timerGuessSelect');
+      socket.emit('startGame', {
+        timerClue: clueSel ? Number(clueSel.value) : 0,
+        timerGuess: guessSel ? Number(guessSel.value) : 0,
+      });
+    }
+
+    /* ─── Compte à rebours du tour ───
+       Le serveur envoie les ms restantes à chaque broadcast ; on repart de
+       cette valeur avec l'horloge locale (aucun souci de décalage). */
+    let timerDeadline = null;
+
+    function updateTimerDisplay() {
+      const el = document.getElementById('timerDisplay');
+      if (!state || timerDeadline === null || (state.phase !== 'clue' && state.phase !== 'guess')) {
+        el.style.display = 'none';
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil((timerDeadline - Date.now()) / 1000));
+      const phaseIcon = state.phase === 'clue' ? '🎯' : '🔍';
+      el.textContent = `⏱️ ${phaseIcon} ${remaining}s`;
+      el.classList.toggle('low', remaining <= 10);
+      el.style.display = 'inline-block';
+    }
+
+    setInterval(updateTimerDisplay, 500);
     function newGame() { getAudio(); socket.emit('newGame'); closeOverlay(); }
     function backToLobby() { socket.emit('backToLobby'); closeOverlay(); }
     function closeOverlay() { document.getElementById('gameoverOverlay').classList.remove('show'); }
@@ -1139,6 +1244,7 @@
       boardWords = [];
       actionsSig = null;
       gameoverShown = false;
+      timerDeadline = null;
       setConnBanner(false);
       document.getElementById('gameScreen').style.display = 'none';
       document.getElementById('joinScreen').style.display = 'flex';
@@ -1182,6 +1288,7 @@
     socket.on('gameState', (newState) => {
       const prev = state;
       state = newState;
+      timerDeadline = (newState.timerRemaining != null) ? Date.now() + newState.timerRemaining : null;
       processFeedback(prev);
       document.getElementById('joinScreen').style.display = 'none';
       document.getElementById('gameScreen').style.display = 'block';
@@ -1262,6 +1369,8 @@
       document.getElementById('teamButtons').style.display = (isLobby && !isSpec) ? '' : 'none';
       const canStart = isLobby && !isSpec && state.you && state.you.team && state.you.role;
       document.getElementById('btnStart').style.display = canStart ? 'inline-block' : 'none';
+      document.getElementById('timerConfig').style.display = canStart ? 'block' : 'none';
+      updateTimerDisplay();
 
       // Game over : l'overlay ne s'ouvre qu'à l'ENTRÉE en fin de partie.
       // Avant, chaque broadcast le rouvrait alors qu'on regardait la grille.
@@ -1340,7 +1449,9 @@
         return;
       }
       if (!state.you || !state.you.team) {
-        div.innerHTML = '<span class="waiting-msg">Choisis ton équipe ↓</span>';
+        div.innerHTML = state.phase === 'lobby'
+          ? '<span class="waiting-msg">Choisis ton équipe ↓</span>'
+          : '<span class="waiting-msg">👁️ Partie en cours — tu observes</span>';
         return;
       }
       const teamLabel = state.you.team === 'red' ? 'Rouge' : 'Bleue';
@@ -1373,10 +1484,16 @@
         banner.classList.remove('show');
       } else if (state.phase === 'guess') {
         const remaining = state.isUnlimited ? '∞' : (state.guessesMax - state.guessesUsed);
-        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🔍 ${teamName} — Devinez ! (${remaining} restant${remaining !== 1 ? 's' : ''})</span>`;
+        // Règle du +1 : le dernier essai au-delà du nombre annoncé est le bonus
+        const onBonus = !state.isUnlimited && typeof state.clueCount === 'number'
+          && state.guessesUsed >= state.clueCount;
+        const label = onBonus ? '1 essai bonus' : `${remaining} restant${remaining !== 1 ? 's' : ''}`;
+        div.innerHTML = `<span class="turn-indicator ${state.currentTeam}">🔍 ${teamName} — Devinez ! (${label})</span>`;
 
         document.getElementById('clueWord').textContent = `« ${state.clue} »  →  ${state.clueCount}`;
-        document.getElementById('clueMeta').textContent = `${state.guessesUsed} trouvé(s) — ${remaining} essai(s) restant(s)`;
+        document.getElementById('clueMeta').textContent = onBonus
+          ? `${state.guessesUsed} trouvé(s) — dernier essai (bonus +1)`
+          : `${state.guessesUsed} trouvé(s) — ${remaining} essai(s) restant(s)`;
         banner.classList.add('show');
       }
     }
@@ -1412,7 +1529,6 @@
       const seesColors = isSpy || isSolo || isSpec || isOver;
       // Solo player can click during guess phase; operatives too
       const canClick = (isOp || isSolo) && isMyTurn && state.phase === 'guess';
-      const lastIndex = state.lastReveal ? state.lastReveal.index : -1;
 
       // Reconstruction uniquement si la grille de mots a changé
       const words = state.cards.map(c => c.word);
@@ -1452,9 +1568,6 @@
 
         // Carte sélectionnée, pas encore confirmée
         if (i === state.selectedCard && !card.revealed) cls.push('selected');
-
-        // Dernier mot retourné : reste mis en avant
-        if (i === lastIndex && card.revealed && !isOver) cls.push('last-revealed');
 
         // Animation de retournement pour les cartes tout juste révélées
         if (flipQueue.includes(i)) {

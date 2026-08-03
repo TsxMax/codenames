@@ -192,8 +192,43 @@ function createRoom(roomId) {
     winReason: null,      // 'words' | 'assassin'
     loser: null,          // équipe qui a touché l'assassin
     lastReveal: null,     // { index, type, byTeam, playerName } → feedback client
+    timerClueSeconds: 0,  // timer de la phase indice (0 = sans, choisi au lancement)
+    timerGuessSeconds: 0, // timer de la phase devinette (0 = sans)
+    turnDeadline: null,   // timestamp de fin de la phase en cours
+    turnTimer: null,      // handle setTimeout côté serveur
     log: [],
   };
+}
+
+/* ─── Timers de tour (optionnels, indépendants par phase) ───
+   Phase indice → timerClueSeconds ; phase devinette → timerGuessSeconds.
+   À l'expiration, l'équipe passe son tour automatiquement. */
+function clearTurnTimer(room) {
+  if (room.turnTimer) { clearTimeout(room.turnTimer); room.turnTimer = null; }
+  room.turnDeadline = null;
+}
+
+function armTurnTimer(room) {
+  clearTurnTimer(room);
+  if (room.phase !== 'clue' && room.phase !== 'guess') return;
+  const secs = room.phase === 'clue' ? room.timerClueSeconds : room.timerGuessSeconds;
+  if (!secs) return;
+
+  const phaseAtArm = room.phase;
+  room.turnDeadline = Date.now() + secs * 1000;
+  room.turnTimer = setTimeout(() => {
+    // La salle peut avoir été supprimée ou la phase avoir changé entre-temps
+    if (rooms[room.id] !== room) return;
+    if (room.phase !== phaseAtArm) return;
+
+    if (room.phase === 'clue') {
+      addLog(room, `⏱️ Temps écoulé — pas d'indice ! L'équipe ${TEAM_LABEL[room.currentTeam]} passe son tour.`);
+    } else {
+      addLog(room, `⏱️ Temps écoulé pour les devineurs ! Fin du tour ${TEAM_LABEL[room.currentTeam]}.`);
+    }
+    endTurn(room);
+    broadcastRoom(room);
+  }, secs * 1000);
 }
 
 // Libellés de rôles (affichage uniquement)
@@ -228,7 +263,9 @@ function validateTeams(room) {
 }
 
 // Remet le plateau à neuf. `keepTeams` conserve équipes et rôles.
+// Les réglages de timers sont conservés : ce sont des préférences de salle.
 function resetGame(room, keepTeams) {
+  clearTurnTimer(room);
   const { cards, startingTeam } = generateBoard();
   room.cards = cards;
   room.startingTeam = startingTeam;
@@ -319,6 +356,11 @@ function getRoomState(room, playerId) {
     redTotal: room.redTotal,
     blueTotal: room.blueTotal,
     startingTeam: room.startingTeam,
+    timerClueSeconds: room.timerClueSeconds,
+    timerGuessSeconds: room.timerGuessSeconds,
+    // ms restants calculés au moment de l'envoi : le client repart de cette
+    // valeur avec sa propre horloge (pas de problème de décalage d'horloges)
+    timerRemaining: room.turnDeadline ? Math.max(0, room.turnDeadline - Date.now()) : null,
     winner: room.winner,
     winReason: room.winReason,
     loser: room.loser,
@@ -345,6 +387,7 @@ function addLog(room, msg) {
 function checkWin(room) {
   for (const team of ['red', 'blue']) {
     if (room[`${team}Score`] >= room[`${team}Total`]) {
+      clearTurnTimer(room);
       room.phase = 'gameover';
       room.winner = team;
       room.winReason = 'words';
@@ -366,6 +409,7 @@ function endTurn(room) {
   room.isUnlimited = false;
   room.selectedCard = -1;
   addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
+  armTurnTimer(room);   // nouveau tour → temps remis à zéro
 }
 
 function cleanupRoom(roomId) {
@@ -373,6 +417,7 @@ function cleanupRoom(roomId) {
   if (!room) return;
   const hasOnline = Object.values(room.players).some(p => p.online);
   if (!hasOnline && Object.values(room.players).every(p => !p.disconnectTimer)) {
+    clearTurnTimer(room);
     delete rooms[roomId];
   }
 }
@@ -508,7 +553,7 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
   });
 
-  socket.on('startGame', () => {
+  socket.on('startGame', ({ timerClue, timerGuess } = {}) => {
     if (!currentRoom || !rooms[currentRoom]) return;
     const room = rooms[currentRoom];
     if (room.phase !== 'lobby') return;
@@ -516,9 +561,19 @@ io.on('connection', (socket) => {
     const err = validateTeams(room);
     if (err) { socket.emit('error', err); return; }
 
+    // Timers optionnels et indépendants : 0 = sans, sinon 10 à 600 secondes
+    const norm = v => { v = Number(v); return (Number.isInteger(v) && v >= 10 && v <= 600) ? v : 0; };
+    room.timerClueSeconds = norm(timerClue);
+    room.timerGuessSeconds = norm(timerGuess);
+
+    const parts = [];
+    if (room.timerClueSeconds) parts.push(`🎯 indice ${room.timerClueSeconds}s`);
+    if (room.timerGuessSeconds) parts.push(`🔍 devine ${room.timerGuessSeconds}s`);
+
     room.phase = 'clue';
-    addLog(room, `🎮 Partie lancée !`);
+    addLog(room, `🎮 Partie lancée !${parts.length ? ` (⏱️ ${parts.join(' / ')})` : ''}`);
     addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
+    armTurnTimer(room);
     broadcastRoom(room);
   });
 
@@ -545,12 +600,14 @@ io.on('connection', (socket) => {
     room.clueCount = isInfinity ? '∞' : numCount;
     room.guessesUsed = 0;
     room.isUnlimited = unlimited;
-    // EXACTEMENT le nombre donné par l'indiceur (pas +1)
-    room.guessesMax = unlimited ? 25 : numCount;
+    // Règle officielle : N mots annoncés → N+1 essais autorisés.
+    // Le +1 permet de rattraper un mot manqué d'un indice précédent.
+    room.guessesMax = unlimited ? 25 : numCount + 1;
     room.selectedCard = -1;
     room.phase = 'guess';
 
-    addLog(room, `🎯 ${player.name} : « ${word} » → ${room.clueCount}`);
+    addLog(room, `🎯 ${player.name} : « ${word} » → ${room.clueCount}${unlimited ? '' : ` (${room.guessesMax} essais max)`}`);
+    armTurnTimer(room);   // les devineurs repartent avec un tour complet
     broadcastRoom(room);
   });
 
@@ -602,6 +659,7 @@ io.on('connection', (socket) => {
 
     // ASSASSIN → perte immédiate
     if (card.type === 'assassin') {
+      clearTurnTimer(room);
       room.phase = 'gameover';
       room.winner = guessingTeam === 'red' ? 'blue' : 'red';
       room.winReason = 'assassin';
@@ -696,6 +754,7 @@ io.on('connection', (socket) => {
       room.phase = 'clue';
       addLog(room, '🔄 Nouvelle partie — mêmes équipes !');
       addLog(room, `───── Tour de l'équipe ${TEAM_LABEL[room.currentTeam]} ─────`);
+      armTurnTimer(room);
     }
     broadcastRoom(room);
   });
