@@ -152,8 +152,34 @@ function shuffle(arr) {
   return a;
 }
 
+/* ─── Pioche de mots sans remise ───
+   Un tirage uniforme classique répète naturellement des mots d'une partie à
+   l'autre (paradoxe des anniversaires : ~29 redites sur 10 parties). On
+   distribue donc les 894 mots comme un paquet de cartes : mélangés une fois,
+   consommés 25 par 25. La pioche est globale au serveur, partagée entre les
+   salles. Au re-mélange, les mots des dernières parties sont replacés en
+   QUEUE de pioche : un même mot ne peut jamais revenir avant au moins
+   RECENT_PROTECTED_GAMES+1 parties, et en pratique ~35. */
+let wordDeck = [];
+const recentDraws = [];             // pioches récentes (FIFO de tableaux de 25)
+const RECENT_PROTECTED_GAMES = 12;  // 300 mots protégés à chaque re-mélange
+
+function drawWords(n) {
+  if (wordDeck.length < n) {
+    const excluded = new Set(recentDraws.flat());
+    wordDeck = shuffle(WORDS.filter(w => !excluded.has(w)));
+    // Les parties récentes repartent en fin de pioche, des plus anciennes
+    // aux plus récentes (mélangées entre elles à l'intérieur de chaque lot).
+    for (const past of recentDraws) wordDeck.push(...shuffle(past));
+  }
+  const drawn = wordDeck.splice(0, n);
+  recentDraws.push(drawn);
+  if (recentDraws.length > RECENT_PROTECTED_GAMES) recentDraws.shift();
+  return drawn;
+}
+
 function generateBoard() {
-  const words = shuffle(WORDS).slice(0, 25);
+  const words = drawWords(25);
   const startingTeam = Math.random() < 0.5 ? 'red' : 'blue';
   const types = [];
   const first = startingTeam === 'red' ? 9 : 8;
